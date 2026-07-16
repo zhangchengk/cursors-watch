@@ -1,3 +1,4 @@
+import type { ComposerHeaderMeta } from "./chat-names.js";
 import { LIVE_TTL_MS } from "./constants.js";
 import type { AgentStatus, SessionState } from "./types.js";
 
@@ -49,4 +50,21 @@ export function applyLiveToSession(
     turnEnded: flags.turnEnded,
     liveHint: flags.liveHint ?? session.liveHint,
   };
+}
+
+/** Merge composer header meta + live snapshot onto a parent session. */
+export function mergeSessionExtras(
+  session: SessionState,
+  meta: ComposerHeaderMeta | undefined,
+  snap: LiveSnapshot | undefined,
+  now: number,
+): SessionState {
+  const withMeta: SessionState = {
+    ...session,
+    chatName: meta?.chatName ?? session.chatName,
+    composerUpdatedAt: meta?.composerUpdatedAt ?? session.composerUpdatedAt,
+    hasUnread: meta?.hasUnread ?? session.hasUnread,
+    liveHint: snap?.liveHint || meta?.subtitle || session.liveHint,
+  };
+  return applyLiveToSession(withMeta, snap, now);
 }

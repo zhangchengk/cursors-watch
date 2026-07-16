@@ -1,6 +1,8 @@
+import fs from "node:fs";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import chokidar from "chokidar";
+import { liveDir } from "./constants.js";
 import type { SessionState } from "./types.js";
 import type { SessionStore } from "./store.js";
 
@@ -46,10 +48,14 @@ export function startWatcher(
 
   setImmediate(refresh);
 
+  const livePath = liveDir(homeDir);
+  fs.mkdirSync(livePath, { recursive: true });
+
   const watcher = chokidar.watch(
     [
       path.join(projectsDir, "**/agent-transcripts/**/*.jsonl"),
       path.join(projectsDir, "**/terminals/*.txt"),
+      livePath,
     ],
     {
       ignoreInitial: true,
@@ -66,4 +72,4 @@ export function startWatcher(
       await watcher.close();
     },
   };
-};
+}

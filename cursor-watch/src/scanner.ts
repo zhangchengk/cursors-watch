@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { aggregateSessions } from "./aggregator.js";
-import { loadComposerChatNamesFromHome } from "./chat-names.js";
+import { loadComposerChatNamesFromHome, loadComposerHeadersMetaFromHome } from "./chat-names.js";
+import { liveDir } from "./constants.js";
 import { inferSessionFields } from "./infer/status.js";
+import { mergeSessionExtras } from "./live-state.js";
+import { readLiveMap } from "./live-store.js";
 import { parseTranscriptFile } from "./parser/transcript.js";
 import { parseTerminalMeta } from "./terminals.js";
 import type { SessionState } from "./types.js";
@@ -17,6 +20,8 @@ export function scanProjects(
   if (!fs.existsSync(projectsDir)) return [];
 
   const chatNames = loadComposerChatNamesFromHome(homeDir);
+  const headers = loadComposerHeadersMetaFromHome(homeDir);
+  const lives = readLiveMap(liveDir(homeDir));
 
   for (const projectKey of fs.readdirSync(projectsDir)) {
     const projectPath = path.join(projectsDir, projectKey);
@@ -46,17 +51,23 @@ export function scanProjects(
       if (!fs.statSync(sessionDir).isDirectory()) continue;
       const mainFile = path.join(sessionDir, `${sessionId}.jsonl`);
       if (fs.existsSync(mainFile)) {
+        const parent = buildState({
+          file: mainFile,
+          projectKey,
+          workspacePath,
+          workspaceLabel,
+          now,
+          shellRunning,
+          shellExitCode,
+          chatNames,
+        });
         raw.push(
-          buildState({
-            file: mainFile,
-            projectKey,
-            workspacePath,
-            workspaceLabel,
+          mergeSessionExtras(
+            parent,
+            headers.get(parent.id),
+            lives.get(parent.id),
             now,
-            shellRunning,
-            shellExitCode,
-            chatNames,
-          }),
+          ),
         );
       }
       const subDir = path.join(sessionDir, "subagents");
