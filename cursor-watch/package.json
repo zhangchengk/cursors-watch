@@ -1,0 +1,25 @@
+{
+  "name": "cursor-watch",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cursor-watch": "./bin/cursor-watch.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node --import tsx src/cli.ts",
+    "dev": "node --import tsx --watch src/cli.ts open"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.7"
+  }
+}
