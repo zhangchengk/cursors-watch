@@ -1,10 +1,4 @@
-const STATUS_RANK = {
-  waiting: 0,
-  error: 1,
-  running: 2,
-  subagent: 2,
-  idle: 3,
-};
+const GROUP_TOP_N = 4;
 
 export function groupKey(session) {
   if (session.workspacePath) return session.workspacePath;
@@ -17,19 +11,27 @@ export function groupLabel(session, key) {
   return key;
 }
 
-function sessionSortKey(s) {
-  const rank = STATUS_RANK[s.status] ?? 99;
-  if (s.status === "waiting") {
-    return [rank, s.waitingSince ?? s.lastActivityAt ?? 0];
-  }
-  return [rank, -(s.lastActivityAt ?? 0)];
+function activityAt(s) {
+  return s.composerUpdatedAt ?? s.lastActivityAt ?? 0;
 }
 
+function hasReminder(s) {
+  return Boolean(s.hasUnread || s.turnEnded);
+}
+
+function cmpCard(a, b) {
+  const ra = hasReminder(a) ? 0 : 1;
+  const rb = hasReminder(b) ? 0 : 1;
+  if (ra !== rb) return ra - rb;
+  const la = a.live ? 0 : 1;
+  const lb = b.live ? 0 : 1;
+  if (la !== lb) return la - lb;
+  return activityAt(b) - activityAt(a);
+}
+
+/** Group ordering uses first-card urgency (same keys as within-group). */
 function cmpSession(a, b) {
-  const ka = sessionSortKey(a);
-  const kb = sessionSortKey(b);
-  if (ka[0] !== kb[0]) return ka[0] - kb[0];
-  return ka[1] - kb[1];
+  return cmpCard(a, b);
 }
 
 function cmpGroup(a, b) {
@@ -38,9 +40,31 @@ function cmpGroup(a, b) {
   return cmpSession(topA, topB);
 }
 
+function limitGroupSessions(sessions) {
+  const sortedByActivity = [...sessions].sort((a, b) => activityAt(b) - activityAt(a));
+  const top = sortedByActivity.slice(0, GROUP_TOP_N);
+  const ids = new Set(top.map((s) => s.id));
+  for (const s of sessions) {
+    if (hasReminder(s) && !ids.has(s.id)) {
+      top.push(s);
+      ids.add(s.id);
+    }
+  }
+  return top.sort(cmpCard);
+}
+
+function recountStatuses(sessions) {
+  const statusCounts = {};
+  for (const s of sessions) {
+    const st = s.status || "idle";
+    statusCounts[st] = (statusCounts[st] || 0) + 1;
+  }
+  return statusCounts;
+}
+
 /**
  * @param {Array<Record<string, unknown>>} sessions
- * @returns {Array<{ key: string, label: string, sessions: Array<Record<string, unknown>>, statusCounts: Record<string, number> }>}
+ * @returns {Array<{ key: string, label: string, sessions: Array<Record<string, unknown>>, statusCounts: Record<string, number>, totalCount: number }>}
  */
 export function groupSessionsForUi(sessions) {
   const map = new Map();
@@ -53,17 +77,18 @@ export function groupSessionsForUi(sessions) {
         label: groupLabel(s, key),
         sessions: [],
         statusCounts: {},
+        totalCount: 0,
       };
       map.set(key, g);
     }
     g.sessions.push(s);
-    const st = s.status || "idle";
-    g.statusCounts[st] = (g.statusCounts[st] || 0) + 1;
   }
 
   const groups = [...map.values()];
   for (const g of groups) {
-    g.sessions.sort(cmpSession);
+    g.totalCount = g.sessions.length;
+    g.sessions = limitGroupSessions(g.sessions);
+    g.statusCounts = recountStatuses(g.sessions);
   }
   groups.sort(cmpGroup);
   return groups;
