@@ -1,5 +1,6 @@
 ---
 pid: 12345
 cwd: /Users/test/idea/Demo
+exit_code: 0
 ---
-running...
+done

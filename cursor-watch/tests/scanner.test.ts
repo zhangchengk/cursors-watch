@@ -25,8 +25,10 @@ describe("scanProjects", () => {
       path.dirname(fileURLToPath(import.meta.url)),
       "fixtures/projects-layout",
     );
+    // Fixture JSONL timestamps are ~1700000002000; keep now inside ACTIVE_WINDOW
+    const now = 1_700_000_002_000 + 60_000;
     // homeDir chosen so decode may fail → label falls back to projectKey
-    const sessions = scanProjects(root, "/Users/test", Date.now());
+    const sessions = scanProjects(root, "/Users/test", now);
     const parent = sessions.find((s) => s.id === "sess-1");
     expect(parent).toBeTruthy();
     expect(parent!.projectKey).toBe("Users-test-idea-Demo");

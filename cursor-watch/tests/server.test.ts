@@ -48,6 +48,6 @@ describe("buildServer", () => {
   it("GET / serves index", async () => {
     const res = await app.inject({ method: "GET", url: "/" });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatch(/cursor-watch/i);
+    expect(res.body).toMatch(/态势面板|Cursor Agent/);
   });
 });

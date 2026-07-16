@@ -1,3 +1,3 @@
-{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\n修复 sonar 清单里的 S1068\n</user_query>"}]}}
-{"role":"assistant","message":{"content":[{"type":"text","text":"先读清单。"},{"type":"tool_use","name":"Read","input":{"path":"/tmp/a.md"}}]}}
-{"role":"assistant","message":{"content":[{"type":"text","text":"已修好，还要继续吗？"}]}}
+{"role":"user","timestamp":1700000000000,"message":{"content":[{"type":"text","text":"<user_query>\n修复 sonar 清单里的 S1068\n</user_query>"}]}}
+{"role":"assistant","timestamp":1700000001000,"message":{"content":[{"type":"text","text":"先读清单。"},{"type":"tool_use","name":"Read","input":{"path":"/tmp/a.md"}}]}}
+{"role":"assistant","timestamp":1700000002000,"message":{"content":[{"type":"text","text":"已修好，还要继续吗？"}]}}
