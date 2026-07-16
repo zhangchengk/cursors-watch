@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { aggregateSessions } from "./aggregator.js";
-import { loadComposerChatNamesFromHome, loadComposerHeadersMetaFromHome } from "./chat-names.js";
+import { loadComposerHeadersMetaFromHome } from "./chat-names.js";
 import { liveDir } from "./constants.js";
 import { inferSessionFields } from "./infer/status.js";
 import { mergeSessionExtras } from "./live-state.js";
@@ -19,7 +19,6 @@ export function scanProjects(
   const raw: SessionState[] = [];
   if (!fs.existsSync(projectsDir)) return [];
 
-  const chatNames = loadComposerChatNamesFromHome(homeDir);
   const headers = loadComposerHeadersMetaFromHome(homeDir);
   const lives = readLiveMap(liveDir(homeDir));
 
@@ -59,7 +58,6 @@ export function scanProjects(
           now,
           shellRunning,
           shellExitCode,
-          chatNames,
         });
         raw.push(
           mergeSessionExtras(
@@ -84,7 +82,6 @@ export function scanProjects(
               shellRunning: false,
               shellExitCode: null,
               parentId: sessionId,
-              chatNames,
             }),
           );
         }
@@ -104,7 +101,6 @@ function buildState(opts: {
   shellRunning: boolean;
   shellExitCode: number | null;
   parentId?: string;
-  chatNames: Map<string, string>;
 }): SessionState {
   const parsed = parseTranscriptFile(opts.file, opts.now, opts.parentId);
   // Re-infer subagentRunning later in aggregator; pass 0 here
@@ -115,7 +111,6 @@ function buildState(opts: {
     shellExitCode: opts.shellExitCode,
     subagentRunning: 0,
   });
-  const chatName = opts.chatNames.get(parsed.id);
   return {
     id: parsed.id,
     projectKey: opts.projectKey,
@@ -123,7 +118,6 @@ function buildState(opts: {
     workspaceLabel: opts.workspaceLabel,
     status: inferred.status,
     summary: parsed.summary,
-    chatName,
     currentAction: inferred.currentAction,
     lastActivityAt: parsed.lastActivityAt,
     waitingSince: inferred.waitingSince,

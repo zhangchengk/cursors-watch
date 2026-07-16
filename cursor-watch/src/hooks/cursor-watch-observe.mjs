@@ -44,10 +44,12 @@ try {
   const now = Date.now();
   const isStop = event === "stop";
   let hint = "";
-  if (typeof input.tool_name === "string") hint = input.tool_name;
-  else if (input.tool_input && typeof input.tool_input.command === "string") {
-    hint = `Shell: ${input.tool_input.command}`.slice(0, 200);
-  } else if (typeof input.text === "string") hint = input.text.slice(0, 120);
+  if (input.tool_input && typeof input.tool_input.command === "string") {
+    const prefix =
+      typeof input.tool_name === "string" ? input.tool_name : "Shell";
+    hint = `${prefix}: ${input.tool_input.command}`.slice(0, 200);
+  } else if (typeof input.tool_name === "string") hint = input.tool_name;
+  else if (typeof input.text === "string") hint = input.text.slice(0, 120);
   else if (prev && prev.liveHint) hint = prev.liveHint;
   const snap = {
     conversationId: id,

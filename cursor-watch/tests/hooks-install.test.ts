@@ -76,7 +76,7 @@ describe("hooks install", () => {
     const snap = JSON.parse(fs.readFileSync(snapPath, "utf8"));
     expect(snap.conversationId).toBe("test-id");
     expect(snap.lastEvent).toBe("preToolUse");
-    expect(snap.liveHint).toBe("Shell");
+    expect(snap.liveHint).toBe("Shell: echo hi");
     expect(snap.stoppedAt).toBeNull();
 
     const empty = spawnSync(process.execPath, [script], {
