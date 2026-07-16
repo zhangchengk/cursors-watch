@@ -1,3 +1,5 @@
+import { formatStatusSummary, groupSessionsForUi } from "./group-sessions.js";
+
 const listEl = document.getElementById("list");
 const countsEl = document.getElementById("counts");
 const drawerEl = document.getElementById("drawer");
@@ -24,21 +26,36 @@ function render(sessions) {
   countsEl.textContent = `🟢${counts.running} 🟡${counts.waiting} 🔵${counts.subagent} ⚪${counts.idle} 🔴${counts.error}`;
 
   listEl.innerHTML = "";
-  for (const s of sessions) {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = `card ${s.status}`;
-    const ageBase =
-      s.status === "waiting" ? s.waitingSince ?? s.lastActivityAt : s.lastActivityAt;
-    const path = s.workspacePath || s.workspaceLabel;
-    card.innerHTML = `
-      <div class="title">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(s.workspaceLabel)}</div>
-      <div class="path">${escapeHtml(path)}</div>
-      <div class="action">${escapeHtml(s.currentAction)} · ${formatDuration(Date.now() - ageBase)}</div>
-      <div class="summary">${escapeHtml(s.summary)}</div>
-    `;
-    card.addEventListener("click", () => openDrawer(s));
-    listEl.appendChild(card);
+  const groups = groupSessionsForUi(sessions);
+  for (const g of groups) {
+    const section = document.createElement("section");
+    section.className = "workspace-group";
+
+    const header = document.createElement("div");
+    header.className = "group-header";
+    const summary = formatStatusSummary(g.statusCounts);
+    header.textContent = summary
+      ? `${g.label} · ${g.sessions.length} 会话 · ${summary}`
+      : `${g.label} · ${g.sessions.length} 会话`;
+    section.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "group-sessions";
+    for (const s of g.sessions) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = `card ${s.status}`;
+      const ageBase =
+        s.status === "waiting" ? s.waitingSince ?? s.lastActivityAt : s.lastActivityAt;
+      card.innerHTML = `
+        <div class="action">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(s.currentAction)} · ${formatDuration(Date.now() - ageBase)}</div>
+        <div class="summary">${escapeHtml(s.summary)}</div>
+      `;
+      card.addEventListener("click", () => openDrawer(s));
+      body.appendChild(card);
+    }
+    section.appendChild(body);
+    listEl.appendChild(section);
   }
 }
 
