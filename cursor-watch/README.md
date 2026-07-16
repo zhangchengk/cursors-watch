@@ -16,6 +16,10 @@ npx cursor-watch status  # 查看 daemon / 端口状态
 npx cursor-watch stop    # 停止 daemon
 ```
 
+## 面板
+
+会话按工作区（工程路径）分区展示；顶栏计数仍按会话条数。组头显示路径、会话数与状态摘要。
+
 ## 端口
 
 - 默认：`http://127.0.0.1:7423`
