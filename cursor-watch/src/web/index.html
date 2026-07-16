@@ -2,12 +2,15 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <title>cursor-watch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cursor Agent 态势面板</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <h1>cursor-watch</h1>
-    <div id="counts"></div>
+    <header class="topbar">
+      <h1>Cursor Agent 态势面板</h1>
+      <div id="counts" class="counts"></div>
+    </header>
     <div id="list"></div>
     <aside id="drawer" hidden></aside>
     <script src="/app.js" type="module"></script>
