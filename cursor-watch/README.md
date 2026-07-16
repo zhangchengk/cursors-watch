@@ -18,7 +18,17 @@ npx cursor-watch stop    # 停止 daemon
 
 ## 面板
 
-会话按工作区（工程路径）分区展示；顶栏计数仍按会话条数。组头显示路径、会话数与状态摘要。卡片标题优先用 Cursor Agent 侧边栏 chat name（`composerHeaders`），找不到再回退到首条用户消息。
+会话按工作区（工程路径）分区展示；顶栏计数仍按会话条数。组头显示路径、「显示 k / 组内 m」与状态摘要（每组最多 Top4，并始终保留未读/本轮结束提醒）。卡片标题优先用 Cursor Agent 侧边栏 chat name（`composerHeaders`），找不到再回退到首条用户消息。LIVE 会话显示迷你滚动（或 LIVE 徽标）；有未读 / 本轮结束时显示完成行。
+
+## Hooks（可选）
+
+```bash
+npx cursor-watch hooks install   # 用户级观察脚本 → ~/.cursor-watch/live
+npx cursor-watch hooks status
+npx cursor-watch hooks uninstall
+```
+
+不安装也可使用面板；安装后可显示 LIVE 迷你滚动与更准的「在跑」状态。hooks 失败不影响 Cursor。
 
 ## 端口
 
@@ -27,7 +37,7 @@ npx cursor-watch stop    # 停止 daemon
 
 ## 数据源
 
-扫描 `~/.cursor/projects` 下的 agent transcripts 与 terminals（只读）。
+扫描 `~/.cursor/projects` 下的 agent transcripts 与 terminals（只读）。可选 hooks 写入 `~/.cursor-watch/live`。
 
 ## 信任边界
 
@@ -36,4 +46,4 @@ npx cursor-watch stop    # 停止 daemon
 
 ## v2 路线图
 
-后续计划：接入 Cursor Hooks、以及从面板一键跳转回 Cursor 会话。
+后续计划：从面板一键跳转回 Cursor 会话。

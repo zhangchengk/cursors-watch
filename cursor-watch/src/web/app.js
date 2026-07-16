@@ -25,6 +25,12 @@ function sessionTitle(s) {
   return name || s.summary || "";
 }
 
+function completionBanner(s) {
+  if (s.hasUnread) return "有未读 · 请查看";
+  if (s.turnEnded) return "本轮结束";
+  return "";
+}
+
 function render(sessions) {
   const counts = { waiting: 0, running: 0, subagent: 0, idle: 0, error: 0 };
   for (const s of sessions) counts[s.status] = (counts[s.status] ?? 0) + 1;
@@ -40,8 +46,8 @@ function render(sessions) {
     header.className = "group-header";
     const summary = formatStatusSummary(g.statusCounts);
     header.textContent = summary
-      ? `${g.label} · ${g.sessions.length} 会话 · ${summary}`
-      : `${g.label} · ${g.sessions.length} 会话`;
+      ? `${g.label} · 显示 ${g.sessions.length} / 组内 ${g.totalCount} · ${summary}`
+      : `${g.label} · 显示 ${g.sessions.length} / 组内 ${g.totalCount}`;
     section.appendChild(header);
 
     const body = document.createElement("div");
@@ -53,10 +59,20 @@ function render(sessions) {
       const ageBase =
         s.status === "waiting" ? s.waitingSince ?? s.lastActivityAt : s.lastActivityAt;
       const title = sessionTitle(s);
+      const banner = completionBanner(s);
+      const marquee =
+        s.live && s.liveHint
+          ? `<div class="marquee" aria-hidden="true"><span>${escapeHtml(s.liveHint)}</span></div>`
+          : s.live
+            ? `<div class="live-badge">LIVE</div>`
+            : "";
       card.innerHTML = `
         <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(title)} · ${formatDuration(Date.now() - ageBase)}</div>
-        <div class="action">${escapeHtml(s.currentAction)}</div>
+        ${marquee}
+        ${banner ? `<div class="completion">${escapeHtml(banner)}</div>` : ""}
+        ${!s.live ? `<div class="action">${escapeHtml(s.currentAction)}</div>` : ""}
       `;
+      card.classList.toggle("is-live", Boolean(s.live));
       card.addEventListener("click", () => openDrawer(s));
       body.appendChild(card);
     }
@@ -69,11 +85,19 @@ function openDrawer(s) {
   drawerEl.hidden = false;
   drawerEl.classList.add("open");
   const title = sessionTitle(s);
+  const composerAt =
+    s.composerUpdatedAt != null
+      ? new Date(s.composerUpdatedAt).toISOString()
+      : "—";
   drawerEl.innerHTML = `
     <header><strong>${escapeHtml(s.workspaceLabel)}</strong>
       <button type="button" id="closeDrawer">关闭</button></header>
     <p>名称: ${escapeHtml(title)}</p>
     <p>状态: ${STATUS_ICON[s.status]} ${s.status}</p>
+    <p>LIVE: ${s.live ? "是" : "否"}${s.liveHint ? ` · ${escapeHtml(s.liveHint)}` : ""}</p>
+    <p>turnEnded: ${s.turnEnded ? "是" : "否"}</p>
+    <p>hasUnread: ${s.hasUnread ? "是" : "否"}</p>
+    <p>composerUpdatedAt: <code>${escapeHtml(composerAt)}</code></p>
     <p>路径: <code>${escapeHtml(s.workspacePath || s.workspaceLabel)}</code></p>
     <p>动作: ${escapeHtml(s.currentAction)}</p>
     <p>首条消息: ${escapeHtml(s.summary)}</p>
