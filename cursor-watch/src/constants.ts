@@ -27,6 +27,18 @@ export function pidFile(home = os.homedir()): string {
   return path.join(stateDir(home), "daemon.pid");
 }
 
+
+export const HOOK_SCRIPT_NAME = "cursor-watch-observe.mjs";
+export const HOOK_COMMAND_MARKER = "cursor-watch-observe";
+
+export function cursorUserHooksDir(home = os.homedir()): string {
+  return path.join(home, ".cursor", "hooks");
+}
+
+export function cursorUserHooksJson(home = os.homedir()): string {
+  return path.join(home, ".cursor", "hooks.json");
+}
+
 export function listenHost(): string {
   return "127.0.0.1";
 }

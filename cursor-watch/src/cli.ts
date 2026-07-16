@@ -94,7 +94,26 @@ async function main(): Promise<void> {
     console.log(url);
     return;
   }
-  console.error("usage: cursor-watch <open|status|stop|daemon>");
+  if (cmd === "hooks") {
+    const sub = process.argv[3];
+    const { installHooks, uninstallHooks, hooksStatus } = await import("./hooks-install.js");
+    if (sub === "install") {
+      const r = installHooks();
+      console.log("installed", r.scriptPath);
+      return;
+    }
+    if (sub === "uninstall") {
+      console.log(JSON.stringify(uninstallHooks(), null, 2));
+      return;
+    }
+    if (sub === "status") {
+      console.log(JSON.stringify(hooksStatus(), null, 2));
+      return;
+    }
+    console.error("usage: cursor-watch hooks <install|uninstall|status>");
+    process.exit(1);
+  }
+  console.error("usage: cursor-watch <open|status|stop|daemon|hooks>");
   process.exit(1);
 }
 
