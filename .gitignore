@@ -1,0 +1,6 @@
+.worktrees/
+.superpowers/
+node_modules/
+cursor-watch/node_modules/
+cursor-watch/dist/
+.DS_Store
