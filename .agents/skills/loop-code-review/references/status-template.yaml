@@ -1,0 +1,35 @@
+# Loop 进行中状态模板（INIT 创建，每轮 L 覆写）
+# 文件名：sanitize(branch)-{YYYYMMDD-HHmmss}.yaml（与 report 同名 stem；分支名 / → -）
+# 位置：config.yaml → paths.status_dir
+
+session_id: "{branch}-{YYYYMMDD-HHmmss}"
+started_at: "2026-07-04T20:00:00+08:00"
+updated_at: "2026-07-04T20:00:00+08:00"
+status: running  # running | completed | aborted
+
+base_sha: ""
+head_sha: ""
+branch: ""
+description: ""
+plan_path: null
+
+max_rounds: 20
+consecutive_clean_rounds: 3
+round: 0
+empty_round_count: 0
+exit_reason: null
+
+report_path: "private/agents/review-loops/{branch}-{YYYYMMDD-HHmmss}-loop.md"
+status_path: ".claude/skills/loop-code-review/status/{branch}-{YYYYMMDD-HHmmss}.yaml"
+
+stuck_tracker: {}
+# issueKey: consecutive_miss_count
+
+last_round:
+  empty: null
+  critical: 0
+  important: 0
+  minor: 0
+  ready_to_merge: null
+  test: null  # pass | fail | skip | none
+  fixes: []

@@ -1,0 +1,10 @@
+# loop-code-review 循环参数（SSOT）
+# Loop INIT 时读取；用户消息 `轮数=N` 可覆盖 max_rounds
+
+max_rounds: 20
+consecutive_clean_rounds: 3
+
+# 路径均相对仓库根（status_dir 相对 skill 根目录）
+paths:
+  status_dir: .claude/skills/loop-code-review/status
+  report_dir: private/agents/review-loops
