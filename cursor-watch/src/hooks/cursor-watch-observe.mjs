@@ -5,6 +5,14 @@ import path from "node:path";
 
 const EVENTS = new Set(["preToolUse", "afterAgentResponse", "stop"]);
 
+/** Basename-safe conversation id only — reject path separators / traversal. */
+function isSafeConversationId(id) {
+  if (typeof id !== "string" || !id) return false;
+  if (id.includes("/") || id.includes("\\") || id.includes("..")) return false;
+  if (path.basename(id) !== id) return false;
+  return true;
+}
+
 let raw = "";
 try {
   raw = fs.readFileSync(0, "utf8");
@@ -20,7 +28,7 @@ try {
     input.session_id ||
     input.composer_id ||
     "";
-  if (!id || !EVENTS.has(event)) {
+  if (!id || !EVENTS.has(event) || !isSafeConversationId(id)) {
     process.exit(0);
   }
   const home = os.homedir();

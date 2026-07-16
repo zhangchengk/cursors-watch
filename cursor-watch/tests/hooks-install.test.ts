@@ -86,4 +86,37 @@ describe("hooks install", () => {
     });
     expect(empty.status).toBe(0);
   });
+
+  it("observe script rejects unsafe conversation ids without writing outside live/", () => {
+    const home = fakeHome();
+    const script = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../src/hooks/cursor-watch-observe.mjs",
+    );
+    const live = path.join(home, ".cursor-watch", "live");
+    fs.mkdirSync(live, { recursive: true });
+
+    const maliciousIds = ["../escape", "..\\escape", "a/b", "a\\b", "..", "foo/../bar"];
+    for (const badId of maliciousIds) {
+      const payload = JSON.stringify({
+        hook_event_name: "preToolUse",
+        conversation_id: badId,
+        tool_name: "Shell",
+      });
+      const r = spawnSync(process.execPath, [script], {
+        input: payload,
+        encoding: "utf8",
+        env: { ...process.env, HOME: home },
+      });
+      expect(r.status).toBe(0);
+    }
+
+    expect(fs.existsSync(path.join(home, ".cursor-watch", "escape.json"))).toBe(false);
+    expect(fs.existsSync(path.join(home, ".cursor-watch", "escape"))).toBe(false);
+    expect(fs.readdirSync(live)).toEqual([]);
+    // No files created under HOME outside the (empty) live dir from these attempts
+    const watchRoot = path.join(home, ".cursor-watch");
+    const all = fs.readdirSync(watchRoot);
+    expect(all).toEqual(["live"]);
+  });
 });
