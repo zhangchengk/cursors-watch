@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { aggregateSessions } from "./aggregator.js";
+import { loadComposerChatNamesFromHome } from "./chat-names.js";
 import { inferSessionFields } from "./infer/status.js";
 import { parseTranscriptFile } from "./parser/transcript.js";
 import { parseTerminalMeta } from "./terminals.js";
@@ -14,6 +15,8 @@ export function scanProjects(
 ): SessionState[] {
   const raw: SessionState[] = [];
   if (!fs.existsSync(projectsDir)) return [];
+
+  const chatNames = loadComposerChatNamesFromHome(homeDir);
 
   for (const projectKey of fs.readdirSync(projectsDir)) {
     const projectPath = path.join(projectsDir, projectKey);
@@ -52,6 +55,7 @@ export function scanProjects(
             now,
             shellRunning,
             shellExitCode,
+            chatNames,
           }),
         );
       }
@@ -69,6 +73,7 @@ export function scanProjects(
               shellRunning: false,
               shellExitCode: null,
               parentId: sessionId,
+              chatNames,
             }),
           );
         }
@@ -88,6 +93,7 @@ function buildState(opts: {
   shellRunning: boolean;
   shellExitCode: number | null;
   parentId?: string;
+  chatNames: Map<string, string>;
 }): SessionState {
   const parsed = parseTranscriptFile(opts.file, opts.now, opts.parentId);
   // Re-infer subagentRunning later in aggregator; pass 0 here
@@ -98,6 +104,7 @@ function buildState(opts: {
     shellExitCode: opts.shellExitCode,
     subagentRunning: 0,
   });
+  const chatName = opts.chatNames.get(parsed.id);
   return {
     id: parsed.id,
     projectKey: opts.projectKey,
@@ -105,6 +112,7 @@ function buildState(opts: {
     workspaceLabel: opts.workspaceLabel,
     status: inferred.status,
     summary: parsed.summary,
+    chatName,
     currentAction: inferred.currentAction,
     lastActivityAt: parsed.lastActivityAt,
     waitingSince: inferred.waitingSince,

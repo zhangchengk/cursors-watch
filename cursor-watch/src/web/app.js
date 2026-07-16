@@ -20,6 +20,11 @@ function formatDuration(ms) {
   return `${Math.floor(m / 60)}h${m % 60}min`;
 }
 
+function sessionTitle(s) {
+  const name = typeof s.chatName === "string" ? s.chatName.trim() : "";
+  return name || s.summary || "";
+}
+
 function render(sessions) {
   const counts = { waiting: 0, running: 0, subagent: 0, idle: 0, error: 0 };
   for (const s of sessions) counts[s.status] = (counts[s.status] ?? 0) + 1;
@@ -47,9 +52,10 @@ function render(sessions) {
       card.className = `card ${s.status}`;
       const ageBase =
         s.status === "waiting" ? s.waitingSince ?? s.lastActivityAt : s.lastActivityAt;
+      const title = sessionTitle(s);
       card.innerHTML = `
-        <div class="action">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(s.currentAction)} · ${formatDuration(Date.now() - ageBase)}</div>
-        <div class="summary">${escapeHtml(s.summary)}</div>
+        <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(title)} · ${formatDuration(Date.now() - ageBase)}</div>
+        <div class="action">${escapeHtml(s.currentAction)}</div>
       `;
       card.addEventListener("click", () => openDrawer(s));
       body.appendChild(card);
@@ -62,13 +68,15 @@ function render(sessions) {
 function openDrawer(s) {
   drawerEl.hidden = false;
   drawerEl.classList.add("open");
+  const title = sessionTitle(s);
   drawerEl.innerHTML = `
     <header><strong>${escapeHtml(s.workspaceLabel)}</strong>
       <button type="button" id="closeDrawer">关闭</button></header>
+    <p>名称: ${escapeHtml(title)}</p>
     <p>状态: ${STATUS_ICON[s.status]} ${s.status}</p>
     <p>路径: <code>${escapeHtml(s.workspacePath || s.workspaceLabel)}</code></p>
     <p>动作: ${escapeHtml(s.currentAction)}</p>
-    <p>摘要: ${escapeHtml(s.summary)}</p>
+    <p>首条消息: ${escapeHtml(s.summary)}</p>
     <p>Transcript: <code>${escapeHtml(s.transcriptPath)}</code></p>
     <p>Subagents: ${s.subagentCount} (running ${s.subagentRunning})</p>
     <h3>最近消息</h3>
