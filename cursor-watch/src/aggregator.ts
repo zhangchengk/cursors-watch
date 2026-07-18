@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { ACTIVE_WINDOW_MS } from "./constants.js";
 import type { AgentStatus, SessionState } from "./types.js";
 
@@ -9,9 +10,20 @@ const STATUS_RANK: Record<AgentStatus, number> = {
   idle: 3,
 };
 
+export function workspaceDirExists(workspacePath: string): boolean {
+  const p = workspacePath?.trim();
+  if (!p) return false;
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export function aggregateSessions(
   sessions: SessionState[],
   now = Date.now(),
+  workspaceExists: (workspacePath: string) => boolean = workspaceDirExists,
 ): SessionState[] {
   const children = sessions.filter((s) => s.parentId);
   const parents = sessions.filter((s) => !s.parentId);
@@ -32,8 +44,8 @@ export function aggregateSessions(
   }
 
   const merged = [...byId.values()].filter((s) => {
-    if (s.status === "waiting") return true;
-    return now - s.lastActivityAt <= ACTIVE_WINDOW_MS;
+    if (!workspaceExists(s.workspacePath)) return false;
+    return s.hasUnread || now - s.lastActivityAt <= ACTIVE_WINDOW_MS;
   });
 
   merged.sort((a, b) => {

@@ -1,8 +1,44 @@
 import { formatStatusSummary, groupSessionsForUi } from "./group-sessions.js";
+import {
+  formatActionLine,
+  formatStatusSentence,
+  latestProgressText,
+  pickReadableMessages,
+} from "./drawer-format.js";
 
 const listEl = document.getElementById("list");
 const countsEl = document.getElementById("counts");
 const drawerEl = document.getElementById("drawer");
+const toastEl = document.getElementById("toast");
+
+let toastTimer = null;
+function showToast(message) {
+  if (!toastEl) return;
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastEl.hidden = true;
+  }, 2800);
+}
+
+async function openInCursor(workspacePath) {
+  try {
+    const res = await fetch("/api/open-workspace", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: workspacePath }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      showToast(data.error || `打开失败 (${res.status})`);
+      return;
+    }
+    showToast("已请求在 Cursor 中打开");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "打开失败");
+  }
+}
 
 const STATUS_ICON = {
   waiting: "🟡",
@@ -53,27 +89,47 @@ function render(sessions) {
     const body = document.createElement("div");
     body.className = "group-sessions";
     for (const s of g.sessions) {
-      const card = document.createElement("button");
-      card.type = "button";
+      const card = document.createElement("div");
       card.className = `card ${s.status}`;
+      card.tabIndex = 0;
       const ageBase =
         s.status === "waiting" ? s.waitingSince ?? s.lastActivityAt : s.lastActivityAt;
       const title = sessionTitle(s);
       const banner = completionBanner(s);
-      const marquee =
-        s.live && s.liveHint
-          ? `<div class="marquee" aria-hidden="true"><span>${escapeHtml(s.liveHint)}</span></div>`
-          : s.live
-            ? `<div class="live-badge">LIVE</div>`
-            : "";
+      const progress = latestProgressText(s);
+      const liveBadge = s.live ? `<div class="live-badge">LIVE</div>` : "";
+      const openBtn = s.workspacePath
+        ? `<button type="button" class="open-cursor" title="在 Cursor 中打开工程">↗</button>`
+        : "";
       card.innerHTML = `
-        <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(title)} · ${formatDuration(Date.now() - ageBase)}</div>
-        ${marquee}
+        <div class="summary-row">
+          <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(title)} · ${formatDuration(Date.now() - ageBase)}</div>
+          ${openBtn}
+        </div>
+        ${liveBadge}
+        ${progress ? `<div class="action">${escapeHtml(progress)}</div>` : ""}
         ${banner ? `<div class="completion">${escapeHtml(banner)}</div>` : ""}
-        ${!s.live ? `<div class="action">${escapeHtml(s.currentAction)}</div>` : ""}
       `;
       card.classList.toggle("is-live", Boolean(s.live));
-      card.addEventListener("click", () => openDrawer(s));
+      const openMain = () => openDrawer(s);
+      card.addEventListener("click", (ev) => {
+        if (ev.target.closest(".open-cursor")) return;
+        openMain();
+      });
+      card.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          if (ev.target.closest(".open-cursor")) return;
+          ev.preventDefault();
+          openMain();
+        }
+      });
+      const ob = card.querySelector(".open-cursor");
+      if (ob) {
+        ob.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          void openInCursor(s.workspacePath);
+        });
+      }
       body.appendChild(card);
     }
     section.appendChild(body);
@@ -85,33 +141,68 @@ function openDrawer(s) {
   drawerEl.hidden = false;
   drawerEl.classList.add("open");
   const title = sessionTitle(s);
+  const statusLine = formatStatusSentence(s);
+  const action = formatActionLine(s);
+  const readable = pickReadableMessages(s.recentMessages, 2);
+  const subN = Number(s.subagentCount) || 0;
+  const subRun = Number(s.subagentRunning) || 0;
   const composerAt =
     s.composerUpdatedAt != null
       ? new Date(s.composerUpdatedAt).toISOString()
       : "—";
+  const openBtn = s.workspacePath
+    ? `<button type="button" class="drawer-open-cursor" id="drawerOpenCursor">在 Cursor 中打开</button>`
+    : "";
+
   drawerEl.innerHTML = `
-    <header><strong>${escapeHtml(s.workspaceLabel)}</strong>
-      <button type="button" id="closeDrawer">关闭</button></header>
-    <p>名称: ${escapeHtml(title)}</p>
-    <p>状态: ${STATUS_ICON[s.status]} ${s.status}</p>
-    <p>LIVE: ${s.live ? "是" : "否"}${s.liveHint ? ` · ${escapeHtml(s.liveHint)}` : ""}</p>
-    <p>turnEnded: ${s.turnEnded ? "是" : "否"}</p>
-    <p>hasUnread: ${s.hasUnread ? "是" : "否"}</p>
-    <p>composerUpdatedAt: <code>${escapeHtml(composerAt)}</code></p>
-    <p>路径: <code>${escapeHtml(s.workspacePath || s.workspaceLabel)}</code></p>
-    <p>动作: ${escapeHtml(s.currentAction)}</p>
-    <p>首条消息: ${escapeHtml(s.summary)}</p>
-    <p>Transcript: <code>${escapeHtml(s.transcriptPath)}</code></p>
-    <p>Subagents: ${s.subagentCount} (running ${s.subagentRunning})</p>
-    <h3>最近消息</h3>
-    <ul>${(s.recentMessages || [])
-      .map((m) => `<li><strong>${m.role}</strong>: ${escapeHtml(m.text)}</li>`)
-      .join("")}</ul>
+    <header>
+      <strong>${escapeHtml(title)}</strong>
+      <button type="button" id="closeDrawer">关闭</button>
+    </header>
+    <p class="drawer-status">${escapeHtml(statusLine)}</p>
+    <p class="drawer-meta"><span class="label">工程</span> ${escapeHtml(s.workspaceLabel || "—")}</p>
+    ${action ? `<p class="drawer-meta"><span class="label">当前</span> ${escapeHtml(action)}</p>` : ""}
+    ${
+      subN > 0
+        ? `<p class="drawer-meta"><span class="label">子任务</span> ${subN} 个${subRun > 0 ? `（进行中 ${subRun}）` : ""}</p>`
+        : ""
+    }
+    ${openBtn}
+    ${
+      readable.length
+        ? `<div class="drawer-section"><h3>最近进展</h3><ul class="drawer-msgs">${readable
+            .map(
+              (m) =>
+                `<li><span class="role">${m.role === "user" ? "你" : "Agent"}</span> ${escapeHtml(m.text)}</li>`,
+            )
+            .join("")}</ul></div>`
+        : ""
+    }
+    <details class="drawer-tech">
+      <summary>技术细节</summary>
+      <p><span class="label">状态枚举</span> <code>${escapeHtml(s.status)}</code>
+        · live=${s.live ? "是" : "否"}
+        · turnEnded=${s.turnEnded ? "是" : "否"}
+        · hasUnread=${s.hasUnread ? "是" : "否"}</p>
+      <p><span class="label">路径</span> <code>${escapeHtml(s.workspacePath || "—")}</code></p>
+      <p><span class="label">更新时间</span> <code>${escapeHtml(composerAt)}</code></p>
+      <p><span class="label">首条消息</span> ${escapeHtml(s.summary || "—")}</p>
+      <p><span class="label">Transcript</span> <code>${escapeHtml(s.transcriptPath || "—")}</code></p>
+      <p><span class="label">Subagents</span> ${subN} (running ${subRun})</p>
+      <h4>原始最近消息</h4>
+      <ul>${(s.recentMessages || [])
+        .map((m) => `<li><strong>${escapeHtml(m.role)}</strong>: ${escapeHtml(m.text)}</li>`)
+        .join("")}</ul>
+    </details>
   `;
   document.getElementById("closeDrawer").onclick = () => {
     drawerEl.classList.remove("open");
     drawerEl.hidden = true;
   };
+  const openCursorBtn = document.getElementById("drawerOpenCursor");
+  if (openCursorBtn && s.workspacePath) {
+    openCursorBtn.onclick = () => void openInCursor(s.workspacePath);
+  }
 }
 
 function escapeHtml(s) {
@@ -122,7 +213,49 @@ function escapeHtml(s) {
     .replaceAll('"', "&quot;");
 }
 
+function isFullscreen() {
+  return Boolean(document.fullscreenElement);
+}
+
+function syncFullscreenBtn() {
+  const btn = document.getElementById("fullscreenBtn");
+  if (!btn) return;
+  const on = isFullscreen();
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.textContent = on ? "退出全屏" : "全屏";
+  btn.title = on ? "退出全屏 (Esc / F)" : "全屏 (F)";
+}
+
+async function toggleFullscreen() {
+  try {
+    if (isFullscreen()) {
+      await document.exitFullscreen();
+    } else {
+      await document.documentElement.requestFullscreen();
+    }
+  } catch (err) {
+    console.error("[cursor-watch] fullscreen failed", err);
+  }
+}
+
+function bindFullscreen() {
+  const btn = document.getElementById("fullscreenBtn");
+  if (btn) btn.addEventListener("click", () => void toggleFullscreen());
+  document.addEventListener("fullscreenchange", syncFullscreenBtn);
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "f" && ev.key !== "F") return;
+    const t = ev.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+      return;
+    }
+    ev.preventDefault();
+    void toggleFullscreen();
+  });
+  syncFullscreenBtn();
+}
+
 async function boot() {
+  bindFullscreen();
   const res = await fetch("/api/sessions");
   render(await res.json());
   const proto = location.protocol === "https:" ? "wss" : "ws";

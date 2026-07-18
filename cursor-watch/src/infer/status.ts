@@ -1,3 +1,4 @@
+import { RUNNING_WINDOW_MS } from "../constants.js";
 import type { ParsedTranscript } from "../parser/transcript.js";
 import type { AgentStatus } from "../types.js";
 
@@ -28,8 +29,12 @@ export function inferSessionFields(input: InferInput): InferResult {
     };
   }
 
+  // Stale sessions must not stay "running" just because the last message
+  // still mentions a tool, or another terminal in the same project is open.
+  const recentlyActive = now - parsed.lastActivityAt <= RUNNING_WINDOW_MS;
   const running =
-    parsed.hadToolUseRecently || shellRunning || parsed.lastMessageHadToolUse;
+    parsed.hadToolUseRecently ||
+    (recentlyActive && (shellRunning || parsed.lastMessageHadToolUse));
 
   if (running) {
     const action = parsed.lastToolName

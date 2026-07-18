@@ -19,13 +19,26 @@ function hasReminder(s) {
   return Boolean(s.hasUnread || s.turnEnded);
 }
 
+/** 0 正在运行 → 1 待查看 → 2 本轮结束/其它 */
+function cardBucket(s) {
+  if (
+    s.live ||
+    s.status === "running" ||
+    s.status === "subagent" ||
+    s.status === "error"
+  ) {
+    return 0;
+  }
+  if (s.hasUnread || s.status === "waiting") {
+    return 1;
+  }
+  return 2;
+}
+
 function cmpCard(a, b) {
-  const ra = hasReminder(a) ? 0 : 1;
-  const rb = hasReminder(b) ? 0 : 1;
-  if (ra !== rb) return ra - rb;
-  const la = a.live ? 0 : 1;
-  const lb = b.live ? 0 : 1;
-  if (la !== lb) return la - lb;
+  const ba = cardBucket(a);
+  const bb = cardBucket(b);
+  if (ba !== bb) return ba - bb;
   return activityAt(b) - activityAt(a);
 }
 

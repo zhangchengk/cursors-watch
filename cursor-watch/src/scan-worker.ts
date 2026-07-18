@@ -1,13 +1,16 @@
-import { parentPort, workerData } from "node:worker_threads";
 import { scanProjects } from "./scanner.js";
 
-const { projectsDir, homeDir } = workerData as {
-  projectsDir: string;
-  homeDir: string;
-};
-
-try {
-  parentPort?.postMessage(scanProjects(projectsDir, homeDir));
-} catch (err) {
-  parentPort?.postMessage({ error: err instanceof Error ? err.message : String(err) });
-}
+process.on("message", (msg: unknown) => {
+  const data = msg as { projectsDir?: string; homeDir?: string };
+  if (!data?.projectsDir || !data?.homeDir) {
+    process.send?.({ error: "missing projectsDir/homeDir" });
+    return;
+  }
+  try {
+    process.send?.(scanProjects(data.projectsDir, data.homeDir));
+  } catch (err) {
+    process.send?.({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});

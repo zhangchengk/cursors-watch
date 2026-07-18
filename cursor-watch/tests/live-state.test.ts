@@ -91,4 +91,57 @@ describe("applyLiveToSession", () => {
     expect(s.live).toBe(true);
     expect(s.status).toBe("error");
   });
+
+  it("demotes turnEnded non-live from running to idle", () => {
+    const s = applyLiveToSession(
+      baseSession({ status: "running", hasUnread: false }),
+      snap({ lastEvent: "stop", lastLiveAt: 1_000_000, stoppedAt: 1_000_050 }),
+      1_000_100,
+    );
+    expect(s.live).toBe(false);
+    expect(s.turnEnded).toBe(true);
+    expect(s.status).toBe("idle");
+  });
+
+  it("demotes turnEnded with unread to waiting", () => {
+    const s = applyLiveToSession(
+      baseSession({ status: "running", hasUnread: true }),
+      snap({ lastEvent: "stop", lastLiveAt: 1_000_000, stoppedAt: 1_000_050 }),
+      1_000_100,
+    );
+    expect(s.status).toBe("waiting");
+    expect(s.turnEnded).toBe(true);
+  });
+
+  it("after stop: unread→yellow waiting, read→white idle (even without stop hook)", () => {
+    const unread = applyLiveToSession(
+      baseSession({ status: "waiting", hasUnread: true }),
+      undefined,
+      1_000_100,
+    );
+    expect(unread.status).toBe("waiting");
+
+    const read = applyLiveToSession(
+      baseSession({ status: "waiting", hasUnread: false }),
+      undefined,
+      1_000_100,
+    );
+    expect(read.status).toBe("idle");
+
+    const unreadIdle = applyLiveToSession(
+      baseSession({ status: "idle", hasUnread: true }),
+      undefined,
+      1_000_100,
+    );
+    expect(unreadIdle.status).toBe("waiting");
+  });
+
+  it("keeps running/subagent when still active (not remapped by unread)", () => {
+    const s = applyLiveToSession(
+      baseSession({ status: "running", hasUnread: false }),
+      undefined,
+      1_000_100,
+    );
+    expect(s.status).toBe("running");
+  });
 });

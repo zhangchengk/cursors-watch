@@ -1,11 +1,13 @@
 import os from "node:os";
 import path from "node:path";
 
-export const ACTIVE_WINDOW_MS = 30 * 60 * 1000;
+export const ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 export const RUNNING_WINDOW_MS = 2 * 60 * 1000;
+/** Skip parsing transcripts older than this (mtime); waiting beyond this is dropped. */
+export const SCAN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 export const DEFAULT_PORT = 7423;
 export const SUMMARY_MAX_CHARS = 50;
-export const RECENT_MESSAGE_COUNT = 3;
+export const RECENT_MESSAGE_COUNT = 8;
 export const DECODE_MAX_DEPTH = 8;
 
 export function cursorProjectsDir(home = os.homedir()): string {

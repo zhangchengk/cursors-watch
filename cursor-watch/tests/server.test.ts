@@ -50,4 +50,14 @@ describe("buildServer", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatch(/态势面板|Cursor Agent/);
   });
+
+  it("POST /api/open-workspace rejects unknown path", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/open-workspace",
+      payload: { path: "/not/in/list" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().ok).toBe(false);
+  });
 });

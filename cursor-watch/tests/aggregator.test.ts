@@ -20,21 +20,67 @@ function sess(p: Partial<SessionState> & Pick<SessionState, "id" | "status">): S
 
 describe("aggregateSessions", () => {
   const now = 1_000_000;
+  const pathOk = (p: string) => Boolean(p?.trim());
 
-  it("drops cold non-waiting sessions", () => {
+  it("drops sessions colder than ACTIVE_WINDOW except unread", () => {
     const out = aggregateSessions(
       [
-        sess({ id: "old", status: "idle", lastActivityAt: now - 2 * 60 * 60 * 1000 }),
+        sess({ id: "old", status: "idle", lastActivityAt: now - 3 * 60 * 60 * 1000 }),
         sess({
-          id: "wait",
+          id: "wait-old",
           status: "waiting",
-          lastActivityAt: now - 2 * 60 * 60 * 1000,
-          waitingSince: now - 2 * 60 * 60 * 1000,
+          lastActivityAt: now - 3 * 60 * 60 * 1000,
+          waitingSince: now - 3 * 60 * 60 * 1000,
+        }),
+        sess({
+          id: "wait-fresh",
+          status: "waiting",
+          lastActivityAt: now - 30 * 60 * 1000,
+          waitingSince: now - 30 * 60 * 1000,
+        }),
+        sess({
+          id: "unread-old",
+          status: "waiting",
+          lastActivityAt: now - 5 * 60 * 60 * 1000,
+          waitingSince: now - 5 * 60 * 60 * 1000,
+          hasUnread: true,
         }),
       ],
       now,
+      pathOk,
     );
-    expect(out.map((s) => s.id)).toEqual(["wait"]);
+    expect(out.map((s) => s.id).sort()).toEqual(["unread-old", "wait-fresh"]);
+  });
+
+  it("drops unresolved or missing workspaces even when unread", () => {
+    const out = aggregateSessions(
+      [
+        sess({
+          id: "ghost",
+          status: "waiting",
+          workspacePath: "",
+          hasUnread: true,
+          lastActivityAt: now,
+        }),
+        sess({
+          id: "gone",
+          status: "waiting",
+          workspacePath: "/Users/zhangcheng/idea/dbUtils",
+          hasUnread: true,
+          lastActivityAt: now,
+        }),
+        sess({
+          id: "alive",
+          status: "waiting",
+          workspacePath: "/Users/zhangcheng/idea/Cursors",
+          hasUnread: true,
+          lastActivityAt: now,
+        }),
+      ],
+      now,
+      (p) => p === "/Users/zhangcheng/idea/Cursors",
+    );
+    expect(out.map((s) => s.id)).toEqual(["alive"]);
   });
 
   it("merges subagent rows into parent counts and excludes child rows", () => {
@@ -53,6 +99,7 @@ describe("aggregateSessions", () => {
         }),
       ],
       now,
+      pathOk,
     );
     expect(out).toHaveLength(1);
     expect(out[0].id).toBe("parent");
@@ -81,6 +128,7 @@ describe("aggregateSessions", () => {
         }),
       ],
       now,
+      pathOk,
     );
     expect(out.map((s) => s.id)).toEqual(["w1", "w2", "e", "r", "i"]);
   });

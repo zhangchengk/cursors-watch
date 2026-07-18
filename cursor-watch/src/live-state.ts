@@ -42,7 +42,17 @@ export function applyLiveToSession(
 ): SessionState {
   const flags = deriveLiveFlags(snap, now);
   let status: AgentStatus = session.status;
-  if (flags.live && status !== "error") status = "running";
+  if (status !== "error") {
+    if (flags.live) {
+      status = "running";
+    } else if (
+      flags.turnEnded ||
+      (status !== "running" && status !== "subagent")
+    ) {
+      // Agent 已停（或非运行态）：黄=未读，白=已读
+      status = session.hasUnread ? "waiting" : "idle";
+    }
+  }
   return {
     ...session,
     status,

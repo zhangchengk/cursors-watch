@@ -1,43 +1,73 @@
 import fs from "node:fs";
 import path from "node:path";
-import { Worker } from "node:worker_threads";
+import { fork, type ChildProcess } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import chokidar from "chokidar";
 import { liveDir } from "./constants.js";
 import type { SessionState } from "./types.js";
 import type { SessionStore } from "./store.js";
+
+const workerPath = fileURLToPath(new URL("./scan-worker.ts", import.meta.url));
 
 export function startWatcher(
   projectsDir: string,
   homeDir: string,
   store: SessionStore,
 ): { close: () => Promise<void> } {
-  let scanWorker: Worker | null = null;
+  let child: ChildProcess | null = null;
+  let scanInFlight = false;
+  let pendingRefresh = false;
 
   const refresh = () => {
-    if (scanWorker) {
-      void scanWorker.terminate();
-      scanWorker = null;
+    if (scanInFlight) {
+      pendingRefresh = true;
+      return;
     }
-    scanWorker = new Worker(new URL("./scan-worker.ts", import.meta.url), {
-      workerData: { projectsDir, homeDir },
-      execArgv: process.execArgv,
+    scanInFlight = true;
+    pendingRefresh = false;
+
+    child = fork(workerPath, [], {
+      execArgv: ["--import", "tsx"],
+      stdio: ["pipe", "pipe", "pipe", "ipc"],
     });
-    scanWorker.on("message", (msg: SessionState[] | { error: string }) => {
-      scanWorker = null;
+
+    const finish = () => {
+      child = null;
+      scanInFlight = false;
+      if (pendingRefresh) {
+        pendingRefresh = false;
+        schedule();
+      }
+    };
+
+    child.on("message", (msg: SessionState[] | { error: string }) => {
       if (!Array.isArray(msg)) {
         console.error("[cursor-watch] scan failed", msg.error);
-        return;
+      } else {
+        try {
+          store.replaceAll(msg);
+          console.log(`[cursor-watch] sessions=${msg.length}`);
+        } catch (err) {
+          console.error("[cursor-watch] store update failed", err);
+        }
       }
-      try {
-        store.replaceAll(msg);
-      } catch (err) {
-        console.error("[cursor-watch] scan failed", err);
-      }
+      child?.kill();
+      finish();
     });
-    scanWorker.on("error", (err) => {
-      scanWorker = null;
+    child.on("error", (err) => {
       console.error("[cursor-watch] scan failed", err);
+      finish();
     });
+    child.on("exit", (code) => {
+      if (scanInFlight) {
+        if (code && code !== 0) {
+          console.error("[cursor-watch] scan worker exited", code);
+        }
+        finish();
+      }
+    });
+
+    child.send({ projectsDir, homeDir });
   };
 
   let timer: NodeJS.Timeout | null = null;
@@ -68,7 +98,12 @@ export function startWatcher(
   return {
     close: async () => {
       if (timer) clearTimeout(timer);
-      if (scanWorker) await scanWorker.terminate();
+      pendingRefresh = false;
+      if (child) {
+        child.kill();
+        child = null;
+      }
+      scanInFlight = false;
       await watcher.close();
     },
   };

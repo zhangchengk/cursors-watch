@@ -9,10 +9,16 @@
   <body>
     <header class="topbar">
       <h1>Cursor Agent 态势面板</h1>
-      <div id="counts" class="counts"></div>
+      <div class="topbar-right">
+        <div id="counts" class="counts"></div>
+        <button type="button" id="fullscreenBtn" class="icon-btn" aria-pressed="false" title="全屏 (F)">
+          全屏
+        </button>
+      </div>
     </header>
     <div id="list"></div>
     <aside id="drawer" hidden></aside>
+    <div id="toast" class="toast" hidden role="status"></div>
     <script src="/app.js" type="module"></script>
   </body>
 </html>

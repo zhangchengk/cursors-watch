@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { DECODE_MAX_DEPTH } from "./constants.js";
 
+export type WorkspaceIndex = Map<string, string>;
+
 export function encodeWorkspacePath(absPath: string): string {
   const normalized = path.resolve(absPath);
   return normalized.replace(/^\//, "").replace(/\//g, "-");
@@ -17,8 +19,8 @@ export function shortenLabel(absPath: string, homeDir: string): string {
   return abs;
 }
 
-export function decodeProjectKey(
-  projectKey: string,
+/** One BFS under home → encode(path) → absPath. Use for batch resolve. */
+export function buildWorkspaceIndex(
   homeDir: string,
   existsFn: (p: string) => boolean = (p) => {
     try {
@@ -37,11 +39,10 @@ export function decodeProjectKey(
       return [];
     }
   },
-): string | null {
-  if (/^\d+$/.test(projectKey)) return null;
-
+): WorkspaceIndex {
   const home = path.resolve(homeDir);
   const homeDepth = home.split(path.sep).filter(Boolean).length;
+  const index: WorkspaceIndex = new Map();
   const queue: string[] = [home];
   const seen = new Set<string>();
 
@@ -49,8 +50,7 @@ export function decodeProjectKey(
     const cur = queue.shift()!;
     if (seen.has(cur)) continue;
     seen.add(cur);
-
-    if (encodeWorkspacePath(cur) === projectKey) return cur;
+    index.set(encodeWorkspacePath(cur), cur);
 
     const depth = cur.split(path.sep).filter(Boolean).length;
     if (depth - homeDepth >= DECODE_MAX_DEPTH) continue;
@@ -61,14 +61,54 @@ export function decodeProjectKey(
       queue.push(path.join(cur, name));
     }
   }
-  return null;
+  return index;
+}
+
+export function decodeProjectKey(
+  projectKey: string,
+  homeDir: string,
+  existsFn?: (p: string) => boolean,
+  listDirsFn?: (p: string) => string[],
+  index?: WorkspaceIndex,
+): string | null {
+  if (/^\d+$/.test(projectKey)) return null;
+  if (index) return index.get(projectKey) ?? null;
+
+  const resolvedExists =
+    existsFn ??
+    ((p: string) => {
+      try {
+        return fs.statSync(p).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+  const resolvedList =
+    listDirsFn ??
+    ((p: string) => {
+      try {
+        return fs
+          .readdirSync(p, { withFileTypes: true })
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name);
+      } catch {
+        return [];
+      }
+    });
+
+  return buildWorkspaceIndex(homeDir, resolvedExists, resolvedList).get(projectKey) ?? null;
 }
 
 export function resolveWorkspace(
   projectKey: string,
   homeDir: string,
+  index?: WorkspaceIndex,
 ): { workspacePath: string; workspaceLabel: string } {
-  const decoded = decodeProjectKey(projectKey, homeDir);
+  const decoded = index
+    ? /^\d+$/.test(projectKey)
+      ? null
+      : (index.get(projectKey) ?? null)
+    : decodeProjectKey(projectKey, homeDir);
   if (decoded) {
     return {
       workspacePath: decoded,

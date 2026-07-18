@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RUNNING_WINDOW_MS } from "../src/constants.js";
 import { inferSessionFields } from "../src/infer/status.js";
 import type { ParsedTranscript } from "../src/parser/transcript.js";
 
@@ -11,7 +12,7 @@ function base(over: Partial<ParsedTranscript> = {}): ParsedTranscript {
     lastToolFailed: false,
     hadToolUseRecently: false,
     lastMessageHadToolUse: false,
-    lastActivityAt: Date.now(),
+    lastActivityAt: 10_000_000,
     recentMessages: [],
     rawUserTexts: ["hello"],
     ...over,
@@ -41,6 +42,7 @@ describe("inferSessionFields", () => {
         lastToolName: "Shell",
         lastToolCommand: "mvn test",
         lastMessageHadToolUse: true,
+        lastActivityAt: now - 10_000,
       }),
       now,
       shellRunning: false,
@@ -52,15 +54,46 @@ describe("inferSessionFields", () => {
     expect(r.currentAction).toContain("mvn test");
   });
 
-  it("marks running when shellRunning", () => {
+  it("marks running when shellRunning and session recently active", () => {
     const r = inferSessionFields({
-      parsed: base({ lastRole: "assistant" }),
+      parsed: base({ lastRole: "assistant", lastActivityAt: now - 10_000 }),
       now,
       shellRunning: true,
       shellExitCode: null,
       subagentRunning: 0,
     });
     expect(r.status).toBe("running");
+  });
+
+  it("does not stay running on stale lastMessageHadToolUse", () => {
+    const r = inferSessionFields({
+      parsed: base({
+        lastRole: "assistant",
+        lastMessageHadToolUse: true,
+        lastToolName: "AwaitShell",
+        lastToolCommand: "cat /tmp/result.json",
+        lastActivityAt: now - RUNNING_WINDOW_MS - 1,
+      }),
+      now,
+      shellRunning: false,
+      shellExitCode: null,
+      subagentRunning: 0,
+    });
+    expect(r.status).toBe("waiting");
+  });
+
+  it("does not stay running on stale shellRunning alone", () => {
+    const r = inferSessionFields({
+      parsed: base({
+        lastRole: "assistant",
+        lastActivityAt: now - RUNNING_WINDOW_MS - 60_000,
+      }),
+      now,
+      shellRunning: true,
+      shellExitCode: null,
+      subagentRunning: 0,
+    });
+    expect(r.status).toBe("waiting");
   });
 
   it("marks error on tool failure or nonzero exit", () => {
@@ -104,7 +137,6 @@ describe("inferSessionFields", () => {
       shellExitCode: null,
       subagentRunning: 0,
     });
-    // agent may be thinking — MVP: idle (not waiting for user)
     expect(r.status).toBe("idle");
   });
 });

@@ -32,18 +32,18 @@ function sess(
 }
 
 describe("groupSessionsForUi", () => {
-  it("groups by workspacePath then sorts groups by urgency", () => {
+  it("groups by workspacePath; within group: running → 待查看 → 本轮结束(近→远)", () => {
     const groups = groupSessionsForUi([
       sess({
-        id: "r1",
-        status: "running",
-        workspacePath: "/Users/u/idea/A",
-        workspaceLabel: "idea/A",
-        lastActivityAt: 5000,
-        live: true,
+        id: "ended",
+        status: "idle",
+        workspacePath: "/Users/u/idea/B",
+        workspaceLabel: "idea/B",
+        lastActivityAt: 4000,
+        turnEnded: true,
       }),
       sess({
-        id: "u1",
+        id: "unread",
         status: "idle",
         workspacePath: "/Users/u/idea/B",
         workspaceLabel: "idea/B",
@@ -51,21 +51,61 @@ describe("groupSessionsForUi", () => {
         hasUnread: true,
       }),
       sess({
-        id: "r2",
+        id: "run",
         status: "running",
         workspacePath: "/Users/u/idea/B",
         workspaceLabel: "idea/B",
-        lastActivityAt: 4500,
+        lastActivityAt: 2000,
+        live: true,
+      }),
+      sess({
+        id: "wait",
+        status: "waiting",
+        workspacePath: "/Users/u/idea/B",
+        workspaceLabel: "idea/B",
+        lastActivityAt: 3000,
+      }),
+      sess({
+        id: "other-run",
+        status: "running",
+        workspacePath: "/Users/u/idea/A",
+        workspaceLabel: "idea/A",
+        lastActivityAt: 5000,
         live: true,
       }),
     ]);
-    // reminder (u1) > live > activity → group B first; within B: u1 then r2
-    expect(groups.map((g) => g.label)).toEqual(["idea/B", "idea/A"]);
-    expect(groups[0].sessions.map((s) => s.id)).toEqual(["u1", "r2"]);
-    expect(groups[0].statusCounts).toEqual({ idle: 1, running: 1 });
-    expect(groups[0].totalCount).toBe(2);
-    expect(groups[1].sessions).toHaveLength(1);
-    expect(groups[1].totalCount).toBe(1);
+    // Within B: run → wait/unread → ended；组序按各组首卡（A 的 running 更新）
+    expect(groups.map((g) => g.label)).toEqual(["idea/A", "idea/B"]);
+    const b = groups.find((g) => g.label === "idea/B");
+    expect(b.sessions.map((s) => s.id)).toEqual([
+      "run",
+      "wait",
+      "unread",
+      "ended",
+    ]);
+    expect(b.totalCount).toBe(4);
+  });
+
+  it("sorts 本轮结束 by most recent activity first", () => {
+    const groups = groupSessionsForUi([
+      sess({
+        id: "old",
+        status: "idle",
+        workspacePath: "/A",
+        workspaceLabel: "A",
+        lastActivityAt: 1000,
+        turnEnded: true,
+      }),
+      sess({
+        id: "new",
+        status: "idle",
+        workspacePath: "/A",
+        workspaceLabel: "A",
+        lastActivityAt: 9000,
+        turnEnded: true,
+      }),
+    ]);
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(["new", "old"]);
   });
 
   it("falls back key path → label → projectKey; always emits group header data for singleton", () => {
@@ -134,6 +174,7 @@ describe("groupSessionsForUi", () => {
     const g = groupSessionsForUi(sessions)[0];
     expect(g.totalCount).toBe(7);
     expect(g.sessions.length).toBe(5); // top4 (s5..s2) + old-unread
+    // 待查看(unread) before idle 本轮结束-ish; then by activity desc
     expect(g.sessions.map((s) => s.id)).toEqual([
       "old-unread",
       "s5",
