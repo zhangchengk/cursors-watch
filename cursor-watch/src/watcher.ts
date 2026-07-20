@@ -4,6 +4,8 @@ import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import chokidar from "chokidar";
 import { liveDir } from "./constants.js";
+import { createRefreshController } from "./refresh-controller.js";
+import { ScanCaches } from "./scan-caches.js";
 import type { SessionState } from "./types.js";
 import type { SessionStore } from "./store.js";
 
@@ -15,16 +17,13 @@ export function startWatcher(
   store: SessionStore,
 ): { close: () => Promise<void> } {
   let child: ChildProcess | null = null;
-  let scanInFlight = false;
-  let pendingRefresh = false;
+  const caches = new ScanCaches(homeDir);
 
-  const refresh = () => {
-    if (scanInFlight) {
-      pendingRefresh = true;
+  const runFullScan = () => {
+    if (child) {
+      // Controller coalesces; ignore overlapping fork requests.
       return;
     }
-    scanInFlight = true;
-    pendingRefresh = false;
 
     child = fork(workerPath, [], {
       execArgv: ["--import", "tsx"],
@@ -33,11 +32,7 @@ export function startWatcher(
 
     const finish = () => {
       child = null;
-      scanInFlight = false;
-      if (pendingRefresh) {
-        pendingRefresh = false;
-        schedule();
-      }
+      controller.notifyFullScanComplete();
     };
 
     child.on("message", (msg: SessionState[] | { error: string }) => {
@@ -59,7 +54,7 @@ export function startWatcher(
       finish();
     });
     child.on("exit", (code) => {
-      if (scanInFlight) {
+      if (child) {
         if (code && code !== 0) {
           console.error("[cursor-watch] scan worker exited", code);
         }
@@ -70,13 +65,13 @@ export function startWatcher(
     child.send({ projectsDir, homeDir });
   };
 
-  let timer: NodeJS.Timeout | null = null;
-  const schedule = () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(refresh, 300);
-  };
-
-  setImmediate(refresh);
+  const controller = createRefreshController({
+    projectsDir,
+    homeDir,
+    store,
+    caches,
+    runFullScan,
+  });
 
   const livePath = liveDir(homeDir);
   fs.mkdirSync(livePath, { recursive: true });
@@ -93,17 +88,17 @@ export function startWatcher(
       depth: 8,
     },
   );
-  watcher.on("all", schedule);
+  watcher.on("all", (event, p) => controller.onFsEvent(event, p));
+
+  controller.start();
 
   return {
     close: async () => {
-      if (timer) clearTimeout(timer);
-      pendingRefresh = false;
+      controller.close();
       if (child) {
         child.kill();
         child = null;
       }
-      scanInFlight = false;
       await watcher.close();
     },
   };
