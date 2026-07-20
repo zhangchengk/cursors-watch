@@ -1,6 +1,6 @@
 # cursor-watch：增量扫描（状态 + 进展近实时）
 
-状态：已确认（实施计划已就绪）  
+状态：已实现  
 日期：2026-07-20  
 仓库：`/Users/zhangcheng/idea/Cursors`  
 包：`cursor-watch/`  
