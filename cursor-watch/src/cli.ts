@@ -2,8 +2,12 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
-import { listenHost, listenPort, pidFile } from "./constants.js";
+import { listenHost, listenPort, pidFile, stateDir } from "./constants.js";
 import { runDaemon } from "./daemon.js";
+import {
+  daemonSpawnShellCommand,
+  shouldRaiseNofile,
+} from "./nofile.js";
 
 async function isPortOpen(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -37,13 +41,27 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+function daemonLogPath(): string {
+  return `${stateDir()}/daemon.log`;
+}
+
 async function ensureDaemon(): Promise<void> {
   const host = listenHost();
   const port = listenPort();
   if (await isPortOpen(host, port)) return;
 
+  fs.mkdirSync(stateDir(), { recursive: true });
   const self = fileURLToPath(import.meta.url);
-  const child = spawn(process.execPath, ["--import", "tsx", self, "daemon"], {
+  // Redirect via shell (not inherited fds) so later fork() of the scan worker
+  // does not hit spawn EBADF from a closed/duped log fd.
+  const shellCmd = daemonSpawnShellCommand(
+    process.execPath,
+    ["--import", "tsx"],
+    self,
+    ["daemon"],
+    daemonLogPath(),
+  );
+  const child = spawn("bash", ["-c", shellCmd], {
     detached: true,
     stdio: "ignore",
     env: process.env,
@@ -61,9 +79,31 @@ async function openBrowser(url: string): Promise<void> {
   spawn("open", [url], { stdio: "ignore", detached: true }).unref();
 }
 
+/** Re-exec under a higher NOFILE soft limit when launched as `daemon` directly. */
+function reexecDaemonWithRaisedNofile(): boolean {
+  if (!shouldRaiseNofile()) return false;
+  const self = fileURLToPath(import.meta.url);
+  const shellCmd = daemonSpawnShellCommand(
+    process.execPath,
+    process.execArgv,
+    self,
+    process.argv.slice(2),
+  );
+  const child = spawn("bash", ["-c", shellCmd], {
+    stdio: "inherit",
+    env: process.env,
+  });
+  child.on("exit", (code, signal) => {
+    if (signal) process.kill(process.pid, signal);
+    process.exit(code ?? 1);
+  });
+  return true;
+}
+
 async function main(): Promise<void> {
   const cmd = process.argv[2] ?? "open";
   if (cmd === "daemon") {
+    if (reexecDaemonWithRaisedNofile()) return;
     await runDaemon();
     return;
   }

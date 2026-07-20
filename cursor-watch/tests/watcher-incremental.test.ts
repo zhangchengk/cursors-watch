@@ -362,4 +362,31 @@ describe("createRefreshController", () => {
 
     controller.close();
   });
+
+  it("onComposerDbEvent syncs headers after debounce", () => {
+    const store = new SessionStore();
+    const caches = new ScanCaches(homeDir, {
+      loadHeaders: () => new Map(),
+      dbMtimeMs: () => 0,
+      buildIndex: () => new Map(),
+    });
+    const syncComposerHeaders = vi.fn();
+    const controller = createRefreshController({
+      projectsDir,
+      homeDir,
+      store,
+      caches,
+      runFullScan: vi.fn(),
+      now: () => 1_700_000_000_000,
+      incremental: { syncComposerHeaders },
+    });
+    controller.start();
+    controller.notifyFullScanComplete();
+
+    controller.onComposerDbEvent();
+    expect(syncComposerHeaders).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(300);
+    expect(syncComposerHeaders).toHaveBeenCalledTimes(1);
+    controller.close();
+  });
 });

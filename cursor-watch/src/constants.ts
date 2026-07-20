@@ -6,6 +6,8 @@ export const RUNNING_WINDOW_MS = 2 * 60 * 1000;
 /** Skip parsing transcripts older than this (mtime); waiting beyond this is dropped. */
 export const SCAN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 export const INCREMENTAL_DEBOUNCE_MS = 80;
+/** Re-read composerHeaders at least this often (WAL may not bump main db mtime). */
+export const HEADERS_CACHE_TTL_MS = 2_000;
 export const FULL_SCAN_INTERVAL_MS = 5 * 60 * 1000;
 export const DEFAULT_PORT = 7423;
 export const SUMMARY_MAX_CHARS = 50;

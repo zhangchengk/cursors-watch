@@ -254,16 +254,32 @@ function bindFullscreen() {
   syncFullscreenBtn();
 }
 
-async function boot() {
-  bindFullscreen();
+async function fetchSessions() {
   const res = await fetch("/api/sessions");
   render(await res.json());
+}
+
+function connectWs() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "sessions") render(msg.payload);
   };
+  ws.onclose = () => {
+    // Daemon restarts drop the socket; without reconnect the UI freezes on the
+    // last frame even while /api/sessions stays fresh.
+    setTimeout(() => {
+      void fetchSessions().catch(() => {});
+      connectWs();
+    }, 1000);
+  };
+}
+
+async function boot() {
+  bindFullscreen();
+  await fetchSessions();
+  connectWs();
 }
 
 boot();

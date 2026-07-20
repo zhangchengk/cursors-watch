@@ -7,17 +7,20 @@ import {
   applyLivePatch as defaultApplyLivePatch,
   rescanParentSession as defaultRescanParentSession,
   rescanProjectShells as defaultRescanProjectShells,
+  syncComposerHeaders as defaultSyncComposerHeaders,
 } from "./incremental-scan.js";
 import type { ScanCaches } from "./scan-caches.js";
 import type { SessionStore } from "./store.js";
 import { classifyWatchPath } from "./watch-path.js";
 
 const FULL_SCAN_DEBOUNCE_MS = 300;
+const HEADERS_SYNC_DEBOUNCE_MS = 300;
 
 export type IncrementalHandlers = {
   applyLivePatch: typeof defaultApplyLivePatch;
   rescanParentSession: typeof defaultRescanParentSession;
   rescanProjectShells: typeof defaultRescanProjectShells;
+  syncComposerHeaders: typeof defaultSyncComposerHeaders;
 };
 
 export function createRefreshController(opts: {
@@ -27,9 +30,10 @@ export function createRefreshController(opts: {
   caches: ScanCaches;
   runFullScan: () => void;
   now?: () => number;
-  incremental?: IncrementalHandlers;
+  incremental?: Partial<IncrementalHandlers>;
 }): {
   onFsEvent: (event: string, filePath: string) => void;
+  onComposerDbEvent: () => void;
   start: () => void;
   close: () => void;
   notifyFullScanComplete: () => void;
@@ -39,6 +43,8 @@ export function createRefreshController(opts: {
     opts.incremental?.rescanParentSession ?? defaultRescanParentSession;
   const rescanProjectShells =
     opts.incremental?.rescanProjectShells ?? defaultRescanProjectShells;
+  const syncComposerHeaders =
+    opts.incremental?.syncComposerHeaders ?? defaultSyncComposerHeaders;
   const nowFn = opts.now ?? Date.now;
   const liveRoot = liveDir(opts.homeDir);
 
@@ -46,6 +52,7 @@ export function createRefreshController(opts: {
   let pendingFullScan = false;
   let scanGeneration = 0;
   let fullScanTimer: ReturnType<typeof setTimeout> | null = null;
+  let headersSyncTimer: ReturnType<typeof setTimeout> | null = null;
   let intervalId: ReturnType<typeof setInterval> | null = null;
   const keyTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingIncrementalKeys = new Set<string>();
@@ -79,9 +86,38 @@ export function createRefreshController(opts: {
     );
   }
 
+  function flushHeadersSync(): void {
+    if (fullScanInFlight) {
+      pendingIncrementalKeys.add("headers:");
+      return;
+    }
+    try {
+      syncComposerHeaders({
+        store: opts.store,
+        caches: opts.caches,
+        homeDir: opts.homeDir,
+        now: nowFn(),
+      });
+    } catch (err) {
+      console.error("[cursor-watch] composer headers sync failed", err);
+    }
+  }
+
+  function onComposerDbEvent(): void {
+    if (headersSyncTimer) clearTimeout(headersSyncTimer);
+    headersSyncTimer = setTimeout(() => {
+      headersSyncTimer = null;
+      flushHeadersSync();
+    }, HEADERS_SYNC_DEBOUNCE_MS);
+  }
+
   function flushKey(key: string): void {
     if (fullScanInFlight) {
       pendingIncrementalKeys.add(key);
+      return;
+    }
+    if (key === "headers:") {
+      flushHeadersSync();
       return;
     }
     executeIncremental(key);
@@ -150,6 +186,9 @@ export function createRefreshController(opts: {
   function notifyFullScanComplete(): void {
     scanGeneration += 1;
     fullScanInFlight = false;
+    // Worker loaded fresh headers; drop daemon cache so incremental cannot
+    // overwrite hasUnread with a stale false.
+    opts.caches.invalidateHeaders();
     if (pendingFullScan) {
       pendingFullScan = false;
       doFullScan();
@@ -158,7 +197,10 @@ export function createRefreshController(opts: {
     if (pendingIncrementalKeys.size === 0) return;
     const keys = [...pendingIncrementalKeys];
     pendingIncrementalKeys.clear();
-    for (const key of keys) scheduleKey(key);
+    for (const key of keys) {
+      if (key === "headers:") flushHeadersSync();
+      else scheduleKey(key);
+    }
   }
 
   function onFsEvent(event: string, filePath: string): void {
@@ -210,6 +252,10 @@ export function createRefreshController(opts: {
       clearTimeout(fullScanTimer);
       fullScanTimer = null;
     }
+    if (headersSyncTimer) {
+      clearTimeout(headersSyncTimer);
+      headersSyncTimer = null;
+    }
     for (const t of keyTimers.values()) clearTimeout(t);
     keyTimers.clear();
     pendingIncrementalKeys.clear();
@@ -219,6 +265,7 @@ export function createRefreshController(opts: {
 
   return {
     onFsEvent,
+    onComposerDbEvent,
     start,
     close,
     notifyFullScanComplete,

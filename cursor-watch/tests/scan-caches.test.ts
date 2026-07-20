@@ -42,6 +42,48 @@ describe("ScanCaches headers", () => {
     expect(caches.getHeaders().get("a")?.chatName).toBe("second");
     expect(loadCount).toBe(2);
   });
+
+  it("reloads when TTL expires even if mtime is unchanged", () => {
+    let now = 10_000;
+    let loadCount = 0;
+    const maps = [
+      new Map([["a", meta({ hasUnread: false })]]),
+      new Map([["a", meta({ hasUnread: true })]]),
+    ];
+    const caches = new ScanCaches("/fake-home", {
+      dbMtimeMs: () => 1000,
+      now: () => now,
+      loadHeaders: () => {
+        const map = maps[loadCount] ?? maps[maps.length - 1]!;
+        loadCount += 1;
+        return map;
+      },
+    });
+
+    expect(caches.getHeader("a")?.hasUnread).toBe(false);
+    expect(loadCount).toBe(1);
+    now = 11_500; // < 2s TTL
+    expect(caches.getHeader("a")?.hasUnread).toBe(false);
+    expect(loadCount).toBe(1);
+    now = 12_100; // >= 2s TTL
+    expect(caches.getHeader("a")?.hasUnread).toBe(true);
+    expect(loadCount).toBe(2);
+  });
+
+  it("invalidateHeaders forces reload on next get", () => {
+    let loadCount = 0;
+    const caches = new ScanCaches("/fake-home", {
+      dbMtimeMs: () => 1000,
+      loadHeaders: () => {
+        loadCount += 1;
+        return new Map([["a", meta({ hasUnread: loadCount > 1 })]]);
+      },
+    });
+    expect(caches.getHeader("a")?.hasUnread).toBe(false);
+    caches.invalidateHeaders();
+    expect(caches.getHeader("a")?.hasUnread).toBe(true);
+    expect(loadCount).toBe(2);
+  });
 });
 
 describe("ScanCaches workspace index", () => {

@@ -1,6 +1,13 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { classifyWatchPath, shouldIgnoreWatchPath } from "../src/watch-path.js";
+import {
+  classifyWatchPath,
+  listWatchRoots,
+  projectWatchSubdirs,
+  shouldIgnoreWatchPath,
+} from "../src/watch-path.js";
 
 const projectsDir = "/Users/u/.cursor/projects";
 const liveDir = "/Users/u/.cursor-watch/live";
@@ -113,5 +120,29 @@ describe("shouldIgnoreWatchPath", () => {
     expect(
       shouldIgnoreWatchPath(path.join(projectsDir, "P", "terminals"), opts, dir),
     ).toBe(false);
+  });
+});
+
+describe("listWatchRoots", () => {
+  it("includes live and only agent-transcripts/terminals under projects", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cw-watch-roots-"));
+    const projects = path.join(tmp, "projects");
+    const live = path.join(tmp, "live");
+    fs.mkdirSync(path.join(projects, "P1", "agent-transcripts"), { recursive: true });
+    fs.mkdirSync(path.join(projects, "P1", "terminals"), { recursive: true });
+    fs.mkdirSync(path.join(projects, "P1", "other"), { recursive: true });
+    fs.mkdirSync(path.join(projects, "P2", "terminals"), { recursive: true });
+    fs.mkdirSync(live, { recursive: true });
+
+    const roots = listWatchRoots(projects, live);
+    expect(roots).toContain(path.resolve(live));
+    expect(roots).toContain(path.resolve(projects, "P1", "agent-transcripts"));
+    expect(roots).toContain(path.resolve(projects, "P1", "terminals"));
+    expect(roots).toContain(path.resolve(projects, "P2", "terminals"));
+    expect(roots.some((r) => r.endsWith(`${path.sep}other`))).toBe(false);
+
+    expect(projectWatchSubdirs(path.join(projects, "P2"))).toEqual([
+      path.join(projects, "P2", "terminals"),
+    ]);
   });
 });

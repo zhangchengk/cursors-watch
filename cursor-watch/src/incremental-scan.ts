@@ -205,3 +205,40 @@ export function rescanProjectShells(opts: {
     else opts.store.remove(sessionId);
   }
 }
+
+/**
+ * Re-apply composerHeaders (chatName / hasUnread / …) onto all parent sessions.
+ * Used when Cursor's state DB changes without a transcript/live FS event.
+ */
+export function syncComposerHeaders(opts: {
+  store: SessionStore;
+  caches: ScanCaches;
+  homeDir: string;
+  now?: number;
+}): void {
+  opts.caches.invalidateHeaders();
+  const now = opts.now ?? Date.now();
+  for (const session of opts.store.getSessions()) {
+    if (session.parentId) continue;
+    const merged = mergeSessionExtras(
+      stripLiveFields(session),
+      opts.caches.getHeader(session.id),
+      readLiveSnap(opts.homeDir, session.id),
+      now,
+    );
+    if (
+      merged.hasUnread === session.hasUnread &&
+      merged.chatName === session.chatName &&
+      merged.status === session.status &&
+      merged.composerUpdatedAt === session.composerUpdatedAt &&
+      merged.liveHint === session.liveHint
+    ) {
+      continue;
+    }
+    if (!isSessionVisible(merged, now)) {
+      opts.store.remove(session.id);
+      continue;
+    }
+    opts.store.upsert(merged);
+  }
+}

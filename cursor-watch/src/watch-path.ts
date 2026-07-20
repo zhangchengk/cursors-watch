@@ -1,7 +1,49 @@
+import fs from "node:fs";
 import path from "node:path";
 
 /** Stats subset used by chokidar's `ignored` callback. */
 export type WatchPathStats = { isDirectory(): boolean };
+
+/**
+ * Roots to pass to chokidar: live dir + each project's agent-transcripts /
+ * terminals (when present). Avoids watching entire project trees (EMFILE).
+ */
+export function listWatchRoots(projectsDir: string, liveDirPath: string): string[] {
+  const roots: string[] = [path.resolve(liveDirPath)];
+  let entries: fs.Dirent[] = [];
+  try {
+    entries = fs.readdirSync(projectsDir, { withFileTypes: true });
+  } catch {
+    return roots;
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const proj = path.join(projectsDir, e.name);
+    for (const sub of ["agent-transcripts", "terminals"] as const) {
+      const p = path.join(proj, sub);
+      try {
+        if (fs.statSync(p).isDirectory()) roots.push(p);
+      } catch {
+        /* missing */
+      }
+    }
+  }
+  return roots;
+}
+
+/** Subdirs to add when a new project key appears under ~/.cursor/projects. */
+export function projectWatchSubdirs(projectDir: string): string[] {
+  const out: string[] = [];
+  for (const sub of ["agent-transcripts", "terminals"] as const) {
+    const p = path.join(projectDir, sub);
+    try {
+      if (fs.statSync(p).isDirectory()) out.push(p);
+    } catch {
+      /* missing */
+    }
+  }
+  return out;
+}
 
 /** Ignore filter for chokidar: keep live *.json and project transcript/terminal files. */
 export function shouldIgnoreWatchPath(

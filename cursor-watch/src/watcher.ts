@@ -9,23 +9,17 @@ import { createScanFinishGuard } from "./scan-finish-guard.js";
 import { ScanCaches } from "./scan-caches.js";
 import type { SessionState } from "./types.js";
 import type { SessionStore } from "./store.js";
-import { shouldIgnoreWatchPath } from "./watch-path.js";
+import {
+  listWatchRoots,
+  projectWatchSubdirs,
+  shouldIgnoreWatchPath,
+} from "./watch-path.js";
+import { composerDbWatchPaths } from "./scan-caches.js";
 
 const workerPath = fileURLToPath(new URL("./scan-worker.ts", import.meta.url));
 
-/** Depth from a project-key root covers agent-transcripts/.../subagents/*.jsonl. */
-const PROJECT_WATCH_DEPTH = 5;
-
-function listProjectDirs(projectsRoot: string): string[] {
-  try {
-    return fs
-      .readdirSync(projectsRoot, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => path.join(projectsRoot, e.name));
-  } catch {
-    return [];
-  }
-}
+/** Depth from agent-transcripts/ covers sess/sess.jsonl and sess/subagents/*.jsonl. */
+const PROJECT_WATCH_DEPTH = 4;
 
 export function startWatcher(
   projectsDir: string,
@@ -41,11 +35,21 @@ export function startWatcher(
       return;
     }
 
-    child = fork(workerPath, [], {
-      execArgv: ["--import", "tsx"],
-      stdio: ["pipe", "pipe", "pipe", "ipc"],
-    });
-    const proc = child;
+    // ignore stdio: with thousands of chokidar FDs, pipe-based fork can throw
+    // spawn EBADF and take down the daemon if uncaught.
+    let proc: ChildProcess;
+    try {
+      proc = fork(workerPath, [], {
+        execArgv: ["--import", "tsx"],
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+      });
+    } catch (err) {
+      console.error("[cursor-watch] scan fork failed", err);
+      child = null;
+      setImmediate(() => controller.notifyFullScanComplete());
+      return;
+    }
+    child = proc;
     const { finish, isCurrent } = createScanFinishGuard(
       proc,
       () => child,
@@ -85,7 +89,13 @@ export function startWatcher(
       finish();
     });
 
-    proc.send({ projectsDir, homeDir });
+    try {
+      proc.send({ projectsDir, homeDir });
+    } catch (err) {
+      console.error("[cursor-watch] scan send failed", err);
+      proc.kill();
+      finish();
+    }
   };
 
   const controller = createRefreshController({
@@ -99,8 +109,7 @@ export function startWatcher(
   const livePath = liveDir(homeDir);
   fs.mkdirSync(livePath, { recursive: true });
 
-  // Watch each project-key dir (not the whole ~/.cursor/projects tree) plus live.
-  // New project folders are picked up via a shallow projectsRoot watcher.
+  // Watch live + each project's agent-transcripts/terminals only (not whole tree).
   const projectsRoot = path.resolve(projectsDir);
   const liveRoot = path.resolve(livePath);
   fs.mkdirSync(projectsRoot, { recursive: true });
@@ -117,34 +126,77 @@ export function startWatcher(
     awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
   } as const;
 
-  const watcher = chokidar.watch([...listProjectDirs(projectsRoot), liveRoot], {
+  const watcher = chokidar.watch(listWatchRoots(projectsRoot, liveRoot), {
     ...watchOpts,
     depth: PROJECT_WATCH_DEPTH,
     ignored: ignoreWatchPath,
   });
   watcher.on("all", (event, p) => controller.onFsEvent(event, p));
+  watcher.on("error", (err) => {
+    console.error("[cursor-watch] watcher error", err);
+  });
 
-  // Shallow watch: only immediate children of projectsRoot (new project keys).
+  // Shallow watch: new project keys under projectsRoot → add their target subdirs.
   const projectsRootWatcher = chokidar.watch(projectsRoot, {
     ...watchOpts,
-    depth: 1,
+    depth: 2,
     ignored: (filePath: string, stats?: fs.Stats): boolean => {
       const resolved = path.resolve(filePath);
       if (resolved === projectsRoot) return false;
       const rel = path.relative(projectsRoot, resolved);
       if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return true;
-      if (rel.split(path.sep).length > 1) return true;
-      if (stats && !stats.isDirectory()) return true;
-      return false;
+      const parts = rel.split(path.sep);
+      if (parts.length === 1) return false; // project key
+      if (parts.length === 2) {
+        return parts[1] !== "agent-transcripts" && parts[1] !== "terminals";
+      }
+      return true;
     },
   });
+  const addProjectPaths = (projectDir: string) => {
+    for (const p of projectWatchSubdirs(projectDir)) {
+      watcher.add(p);
+    }
+  };
   projectsRootWatcher.on("addDir", (dirPath) => {
     const resolved = path.resolve(dirPath);
     const rel = path.relative(projectsRoot, resolved);
     if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return;
-    if (rel.includes(path.sep)) return;
-    watcher.add(resolved);
+    const parts = rel.split(path.sep);
+    if (parts.length === 1) {
+      addProjectPaths(resolved);
+      return;
+    }
+    if (
+      parts.length === 2 &&
+      (parts[1] === "agent-transcripts" || parts[1] === "terminals")
+    ) {
+      watcher.add(resolved);
+    }
   });
+  projectsRootWatcher.on("error", (err) => {
+    console.error("[cursor-watch] projectsRoot watcher error", err);
+  });
+
+  // Cursor unread/title live in state.vscdb (often via WAL) — not under projects/.
+  // Watch WAL only; the main DB can be tens of GB and must not be watched.
+  const composerDbPaths = composerDbWatchPaths(homeDir);
+  const composerDbWatcher =
+    composerDbPaths.length > 0
+      ? chokidar.watch(composerDbPaths, {
+          ignoreInitial: true,
+          awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
+          // Avoid deep scans / content hashing of huge sqlite files.
+          usePolling: false,
+          alwaysStat: false,
+        })
+      : null;
+  if (composerDbWatcher) {
+    composerDbWatcher.on("all", () => controller.onComposerDbEvent());
+    composerDbWatcher.on("error", (err) => {
+      console.error("[cursor-watch] composer db watcher error", err);
+    });
+  }
 
   controller.start();
 
@@ -155,7 +207,11 @@ export function startWatcher(
         child.kill();
         child = null;
       }
-      await Promise.all([watcher.close(), projectsRootWatcher.close()]);
+      await Promise.all([
+        watcher.close(),
+        projectsRootWatcher.close(),
+        composerDbWatcher ? composerDbWatcher.close() : Promise.resolve(),
+      ]);
     },
   };
 }

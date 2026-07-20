@@ -7,6 +7,7 @@ import {
   applyLivePatch,
   rescanParentSession,
   rescanProjectShells,
+  syncComposerHeaders,
 } from "../src/incremental-scan.js";
 import { ScanCaches } from "../src/scan-caches.js";
 import { SessionStore } from "../src/store.js";
@@ -321,5 +322,52 @@ describe("rescanProjectShells", () => {
     const s = store.getSessions().find((x) => x.id === fx.parentId);
     expect(s).toBeTruthy();
     expect(s!.status).toBe("running");
+  });
+});
+
+describe("syncComposerHeaders", () => {
+  it("promotes idle→waiting when composer header becomes unread", () => {
+    const store = new SessionStore();
+    const wsPath = fs.mkdtempSync(path.join(os.tmpdir(), "cw-unread-ws-"));
+    store.upsert({
+      id: "sess-1",
+      projectKey: "P",
+      workspacePath: wsPath,
+      workspaceLabel: "ws",
+      status: "idle",
+      summary: "done",
+      lastActivityAt: Date.now(),
+      recentMessages: [],
+      hasUnread: false,
+      turnEnded: true,
+    } as SessionState);
+
+    const caches = new ScanCaches("/fake", {
+      dbMtimeMs: () => 1,
+      loadHeaders: () =>
+        new Map([
+          [
+            "sess-1",
+            {
+              hasUnread: true,
+              chatName: "Bug",
+              composerUpdatedAt: Date.now(),
+            },
+          ],
+        ]),
+      buildIndex: () => new Map(),
+    });
+
+    syncComposerHeaders({
+      store,
+      caches,
+      homeDir: "/fake",
+      now: Date.now(),
+    });
+
+    const s = store.getSessions().find((x) => x.id === "sess-1");
+    expect(s?.hasUnread).toBe(true);
+    expect(s?.status).toBe("waiting");
+    expect(s?.chatName).toBe("Bug");
   });
 });
