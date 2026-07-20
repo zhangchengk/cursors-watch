@@ -5,6 +5,8 @@ export const ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 export const RUNNING_WINDOW_MS = 2 * 60 * 1000;
 /** Skip parsing transcripts older than this (mtime); waiting beyond this is dropped. */
 export const SCAN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+export const INCREMENTAL_DEBOUNCE_MS = 80;
+export const FULL_SCAN_INTERVAL_MS = 5 * 60 * 1000;
 export const DEFAULT_PORT = 7423;
 export const SUMMARY_MAX_CHARS = 50;
 export const RECENT_MESSAGE_COUNT = 8;
