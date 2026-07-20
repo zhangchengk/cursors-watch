@@ -1,5 +1,38 @@
 import path from "node:path";
 
+/** Stats subset used by chokidar's `ignored` callback. */
+export type WatchPathStats = { isDirectory(): boolean };
+
+/** Ignore filter for chokidar: keep live *.json and project transcript/terminal files. */
+export function shouldIgnoreWatchPath(
+  filePath: string,
+  opts: { projectsDir: string; liveDir: string },
+  stats?: WatchPathStats,
+): boolean {
+  const projectsRoot = path.resolve(opts.projectsDir);
+  const liveRoot = path.resolve(opts.liveDir);
+  const resolved = path.resolve(filePath);
+
+  if (resolved === projectsRoot || resolved === liveRoot) return false;
+
+  if (resolved.startsWith(liveRoot + path.sep)) {
+    if (!stats || stats.isDirectory()) return false;
+    return path.extname(resolved) !== ".json";
+  }
+
+  const rel = path.relative(projectsRoot, resolved);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return true;
+  const segments = rel.split(path.sep);
+  // Immediate project-key directory under projectsRoot
+  if (segments.length === 1) return false;
+
+  const kind = segments[1];
+  if (kind !== "agent-transcripts" && kind !== "terminals") return true;
+  if (!stats || stats.isDirectory()) return false;
+  if (kind === "agent-transcripts") return path.extname(resolved) !== ".jsonl";
+  return path.extname(resolved) !== ".txt";
+}
+
 export type WatchPathKind =
   | {
       kind: "transcript_main";

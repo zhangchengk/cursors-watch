@@ -236,6 +236,63 @@ describe("createRefreshController", () => {
     controller.close();
   });
 
+  it("addDir/unlinkDir do not schedule a full scan (directory noise)", () => {
+    const { controller, runFullScan } = setup();
+    controller.start();
+    controller.notifyFullScanComplete();
+    runFullScan.mockClear();
+
+    const sessionDir = path.join(
+      projectsDir,
+      "my-proj",
+      "agent-transcripts",
+      "sess-new",
+    );
+    const subagentsDir = path.join(sessionDir, "subagents");
+    const terminalsDir = path.join(projectsDir, "my-proj", "terminals");
+
+    controller.onFsEvent("addDir", sessionDir);
+    controller.onFsEvent("addDir", subagentsDir);
+    controller.onFsEvent("addDir", terminalsDir);
+    controller.onFsEvent("unlinkDir", subagentsDir);
+
+    vi.advanceTimersByTime(300);
+    expect(runFullScan).not.toHaveBeenCalled();
+
+    controller.close();
+  });
+
+  it("file add/change/unlink for transcripts still incremental after dir noise", () => {
+    const { controller, rescanParentSession, runFullScan } = setup();
+    controller.start();
+    controller.notifyFullScanComplete();
+    runFullScan.mockClear();
+
+    const sessionDir = path.join(
+      projectsDir,
+      "my-proj",
+      "agent-transcripts",
+      "sess-aa",
+    );
+    const filePath = path.join(sessionDir, "sess-aa.jsonl");
+
+    controller.onFsEvent("addDir", sessionDir);
+    controller.onFsEvent("add", filePath);
+    vi.advanceTimersByTime(INCREMENTAL_DEBOUNCE_MS);
+
+    expect(rescanParentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectKey: "my-proj",
+        sessionId: "sess-aa",
+      }),
+    );
+    // Also past full-scan debounce — dir noise must not have queued one
+    vi.advanceTimersByTime(300);
+    expect(runFullScan).not.toHaveBeenCalled();
+
+    controller.close();
+  });
+
   it("incremental errors schedule a full scan", () => {
     const { controller, applyLivePatch, runFullScan } = setup();
     applyLivePatch.mockImplementation(() => {

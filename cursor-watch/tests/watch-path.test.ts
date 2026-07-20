@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { classifyWatchPath } from "../src/watch-path.js";
+import { classifyWatchPath, shouldIgnoreWatchPath } from "../src/watch-path.js";
 
 const projectsDir = "/Users/u/.cursor/projects";
 const liveDir = "/Users/u/.cursor-watch/live";
@@ -56,5 +56,62 @@ describe("classifyWatchPath", () => {
     expect(
       classifyWatchPath("/tmp/x", { projectsDir, liveDir }).kind,
     ).toBe("unknown");
+  });
+});
+
+describe("shouldIgnoreWatchPath", () => {
+  const opts = { projectsDir, liveDir };
+  const file = { isDirectory: () => false };
+  const dir = { isDirectory: () => true };
+
+  it("keeps project roots, live root, and target files", () => {
+    expect(shouldIgnoreWatchPath(projectsDir, opts)).toBe(false);
+    expect(shouldIgnoreWatchPath(liveDir, opts)).toBe(false);
+    expect(
+      shouldIgnoreWatchPath(path.join(liveDir, "c.json"), opts, file),
+    ).toBe(false);
+    expect(
+      shouldIgnoreWatchPath(
+        path.join(projectsDir, "P", "agent-transcripts", "s", "s.jsonl"),
+        opts,
+        file,
+      ),
+    ).toBe(false);
+    expect(
+      shouldIgnoreWatchPath(
+        path.join(projectsDir, "P", "terminals", "1.txt"),
+        opts,
+        file,
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores non-target files under projects and live", () => {
+    expect(
+      shouldIgnoreWatchPath(path.join(liveDir, "x.txt"), opts, file),
+    ).toBe(true);
+    expect(
+      shouldIgnoreWatchPath(path.join(projectsDir, "P", "other", "x"), opts, file),
+    ).toBe(true);
+    expect(
+      shouldIgnoreWatchPath(
+        path.join(projectsDir, "P", "agent-transcripts", "s", "s.md"),
+        opts,
+        file,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not ignore intermediate target directories", () => {
+    expect(
+      shouldIgnoreWatchPath(
+        path.join(projectsDir, "P", "agent-transcripts"),
+        opts,
+        dir,
+      ),
+    ).toBe(false);
+    expect(
+      shouldIgnoreWatchPath(path.join(projectsDir, "P", "terminals"), opts, dir),
+    ).toBe(false);
   });
 });

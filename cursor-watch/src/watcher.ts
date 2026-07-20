@@ -9,8 +9,23 @@ import { createScanFinishGuard } from "./scan-finish-guard.js";
 import { ScanCaches } from "./scan-caches.js";
 import type { SessionState } from "./types.js";
 import type { SessionStore } from "./store.js";
+import { shouldIgnoreWatchPath } from "./watch-path.js";
 
 const workerPath = fileURLToPath(new URL("./scan-worker.ts", import.meta.url));
+
+/** Depth from a project-key root covers agent-transcripts/.../subagents/*.jsonl. */
+const PROJECT_WATCH_DEPTH = 5;
+
+function listProjectDirs(projectsRoot: string): string[] {
+  try {
+    return fs
+      .readdirSync(projectsRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(projectsRoot, e.name));
+  } catch {
+    return [];
+  }
+}
 
 export function startWatcher(
   projectsDir: string,
@@ -84,37 +99,52 @@ export function startWatcher(
   const livePath = liveDir(homeDir);
   fs.mkdirSync(livePath, { recursive: true });
 
-  // chokidar v4+ dropped glob support; watch directory roots and filter.
+  // Watch each project-key dir (not the whole ~/.cursor/projects tree) plus live.
+  // New project folders are picked up via a shallow projectsRoot watcher.
   const projectsRoot = path.resolve(projectsDir);
   const liveRoot = path.resolve(livePath);
-  const ignoreWatchPath = (filePath: string, stats?: fs.Stats): boolean => {
-    const resolved = path.resolve(filePath);
-    if (resolved === projectsRoot || resolved === liveRoot) return false;
+  fs.mkdirSync(projectsRoot, { recursive: true });
 
-    if (resolved === liveRoot || resolved.startsWith(liveRoot + path.sep)) {
-      if (!stats || stats.isDirectory()) return false;
-      return path.extname(resolved) !== ".json";
-    }
+  const ignoreWatchPath = (filePath: string, stats?: fs.Stats): boolean =>
+    shouldIgnoreWatchPath(
+      filePath,
+      { projectsDir: projectsRoot, liveDir: liveRoot },
+      stats,
+    );
 
-    const rel = path.relative(projectsRoot, resolved);
-    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return true;
-    const segments = rel.split(path.sep);
-    if (segments.length === 1) return false;
-
-    const kind = segments[1];
-    if (kind !== "agent-transcripts" && kind !== "terminals") return true;
-    if (!stats || stats.isDirectory()) return false;
-    if (kind === "agent-transcripts") return path.extname(resolved) !== ".jsonl";
-    return path.extname(resolved) !== ".txt";
-  };
-
-  const watcher = chokidar.watch([projectsRoot, liveRoot], {
+  const watchOpts = {
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
-    depth: 8,
+  } as const;
+
+  const watcher = chokidar.watch([...listProjectDirs(projectsRoot), liveRoot], {
+    ...watchOpts,
+    depth: PROJECT_WATCH_DEPTH,
     ignored: ignoreWatchPath,
   });
   watcher.on("all", (event, p) => controller.onFsEvent(event, p));
+
+  // Shallow watch: only immediate children of projectsRoot (new project keys).
+  const projectsRootWatcher = chokidar.watch(projectsRoot, {
+    ...watchOpts,
+    depth: 1,
+    ignored: (filePath: string, stats?: fs.Stats): boolean => {
+      const resolved = path.resolve(filePath);
+      if (resolved === projectsRoot) return false;
+      const rel = path.relative(projectsRoot, resolved);
+      if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return true;
+      if (rel.split(path.sep).length > 1) return true;
+      if (stats && !stats.isDirectory()) return true;
+      return false;
+    },
+  });
+  projectsRootWatcher.on("addDir", (dirPath) => {
+    const resolved = path.resolve(dirPath);
+    const rel = path.relative(projectsRoot, resolved);
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return;
+    if (rel.includes(path.sep)) return;
+    watcher.add(resolved);
+  });
 
   controller.start();
 
@@ -125,7 +155,7 @@ export function startWatcher(
         child.kill();
         child = null;
       }
-      await watcher.close();
+      await Promise.all([watcher.close(), projectsRootWatcher.close()]);
     },
   };
 }

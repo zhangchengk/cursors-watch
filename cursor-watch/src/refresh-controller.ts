@@ -161,7 +161,13 @@ export function createRefreshController(opts: {
     for (const key of keys) scheduleKey(key);
   }
 
-  function onFsEvent(_event: string, filePath: string): void {
+  function onFsEvent(event: string, filePath: string): void {
+    // Directory create/remove (session/subagents/terminals folders) is noise —
+    // classifyWatchPath would return unknown and wrongly force a full scan.
+    if (event === "addDir" || event === "unlinkDir") {
+      return;
+    }
+
     const classified = classifyWatchPath(filePath, {
       projectsDir: opts.projectsDir,
       liveDir: liveRoot,
