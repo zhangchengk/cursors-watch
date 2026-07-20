@@ -87,6 +87,23 @@ describe("createRefreshController", () => {
     controller.close();
   });
 
+  it("coalesces overlapping doFullScan via pendingFullScan without double-fork", () => {
+    const { controller, runFullScan } = setup();
+    controller.start();
+    expect(runFullScan).toHaveBeenCalledTimes(1);
+
+    // Still in flight: interval / schedule must set pending, not fork again
+    vi.advanceTimersByTime(FULL_SCAN_INTERVAL_MS);
+    expect(runFullScan).toHaveBeenCalledTimes(1);
+
+    // Complete → drains pending with exactly one new fork
+    controller.notifyFullScanComplete();
+    expect(runFullScan).toHaveBeenCalledTimes(2);
+
+    controller.notifyFullScanComplete();
+    controller.close();
+  });
+
   it("coalesces two live events for the same id within INCREMENTAL_DEBOUNCE_MS", () => {
     const { controller, applyLivePatch, runFullScan } = setup();
     controller.start();

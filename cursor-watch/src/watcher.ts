@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import chokidar from "chokidar";
 import { liveDir } from "./constants.js";
 import { createRefreshController } from "./refresh-controller.js";
+import { createScanFinishGuard } from "./scan-finish-guard.js";
 import { ScanCaches } from "./scan-caches.js";
 import type { SessionState } from "./types.js";
 import type { SessionStore } from "./store.js";
@@ -21,7 +22,7 @@ export function startWatcher(
 
   const runFullScan = () => {
     if (child) {
-      // Controller coalesces; ignore overlapping fork requests.
+      // Controller coalesces via pendingFullScan; ignore overlapping fork.
       return;
     }
 
@@ -29,13 +30,22 @@ export function startWatcher(
       execArgv: ["--import", "tsx"],
       stdio: ["pipe", "pipe", "pipe", "ipc"],
     });
+    const proc = child;
+    const { finish, isCurrent } = createScanFinishGuard(
+      proc,
+      () => child,
+      () => {
+        child = null;
+      },
+      () => controller.notifyFullScanComplete(),
+    );
 
-    const finish = () => {
-      child = null;
-      controller.notifyFullScanComplete();
-    };
-
-    child.on("message", (msg: SessionState[] | { error: string }) => {
+    proc.on("message", (msg: SessionState[] | { error: string }) => {
+      if (!isCurrent()) {
+        // Stale process after a newer fork — kill sender only.
+        proc.kill();
+        return;
+      }
       if (!Array.isArray(msg)) {
         console.error("[cursor-watch] scan failed", msg.error);
       } else {
@@ -46,23 +56,21 @@ export function startWatcher(
           console.error("[cursor-watch] store update failed", err);
         }
       }
-      child?.kill();
+      proc.kill();
       finish();
     });
-    child.on("error", (err) => {
+    proc.on("error", (err) => {
       console.error("[cursor-watch] scan failed", err);
       finish();
     });
-    child.on("exit", (code) => {
-      if (child) {
-        if (code && code !== 0) {
-          console.error("[cursor-watch] scan worker exited", code);
-        }
-        finish();
+    proc.on("exit", (code) => {
+      if (code && code !== 0 && isCurrent()) {
+        console.error("[cursor-watch] scan worker exited", code);
       }
+      finish();
     });
 
-    child.send({ projectsDir, homeDir });
+    proc.send({ projectsDir, homeDir });
   };
 
   const controller = createRefreshController({
