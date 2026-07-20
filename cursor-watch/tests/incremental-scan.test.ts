@@ -158,6 +158,7 @@ describe("applyLivePatch", () => {
       store,
       caches: fx.caches,
       homeDir: fx.home,
+      projectsDir: fx.projectsDir,
       now: fx.now,
     });
     expect(result).toBe("missing");
@@ -187,6 +188,7 @@ describe("applyLivePatch", () => {
       store,
       caches: fx.caches,
       homeDir: fx.home,
+      projectsDir: fx.projectsDir,
       now: fx.now,
     });
     expect(result).toBe("upserted");
@@ -214,10 +216,82 @@ describe("applyLivePatch", () => {
       store,
       caches: fx.caches,
       homeDir: fx.home,
+      projectsDir: fx.projectsDir,
       now: fx.now,
     });
     expect(result).toBe("removed");
     expect(store.getSessions().find((x) => x.id === fx.parentId)).toBeUndefined();
+  });
+
+  it("clears live-forced running when live file is gone (re-infers from transcript)", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    // Previously elevated by live; no live json on disk now
+    store.upsert(
+      baseSession(fx, {
+        status: "running",
+        live: true,
+        liveHint: "Shell",
+        hasUnread: false,
+      }),
+    );
+
+    const result = applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now,
+    });
+    expect(result).toBe("upserted");
+    const s = store.getSessions().find((x) => x.id === fx.parentId);
+    expect(s).toBeTruthy();
+    expect(s!.live).toBe(false);
+    expect(s!.status).not.toBe("running");
+    expect(["idle", "waiting"]).toContain(s!.status);
+  });
+
+  it("clears live-forced running when lastLiveAt is past LIVE_TTL", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    store.upsert(
+      baseSession(fx, {
+        status: "running",
+        live: true,
+        liveHint: "Shell",
+        hasUnread: false,
+      }),
+    );
+
+    const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
+    fs.mkdirSync(path.dirname(livePath), { recursive: true });
+    fs.writeFileSync(
+      livePath,
+      JSON.stringify({
+        conversationId: fx.parentId,
+        lastEvent: "preToolUse",
+        lastLiveAt: fx.now - 120_000,
+        stoppedAt: null,
+        liveHint: "Shell",
+        updatedAt: fx.now - 120_000,
+      }),
+    );
+
+    const result = applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now,
+    });
+    expect(result).toBe("upserted");
+    const s = store.getSessions().find((x) => x.id === fx.parentId);
+    expect(s).toBeTruthy();
+    expect(s!.live).toBe(false);
+    expect(s!.status).not.toBe("running");
+    expect(["idle", "waiting"]).toContain(s!.status);
   });
 });
 

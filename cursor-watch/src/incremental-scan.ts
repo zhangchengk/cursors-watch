@@ -134,6 +134,7 @@ export function applyLivePatch(opts: {
   store: SessionStore;
   caches: ScanCaches;
   homeDir: string;
+  projectsDir: string;
   now?: number;
 }): "upserted" | "missing" | "removed" {
   const now = opts.now ?? Date.now();
@@ -143,12 +144,30 @@ export function applyLivePatch(opts: {
   if (!existing) return "missing";
 
   const snap = readLiveSnap(opts.homeDir, opts.conversationId);
-  const merged = mergeSessionExtras(
+  let merged = mergeSessionExtras(
     stripLiveFields(existing),
     opts.caches.getHeader(opts.conversationId),
     snap,
     now,
   );
+
+  // Live elevates status to running; when live ends without turnEnded,
+  // applyLiveToSession keeps running. Re-infer from transcript/shell.
+  if (!merged.live && merged.status === "running") {
+    const rescanned = rescanParentSession({
+      projectsDir: opts.projectsDir,
+      homeDir: opts.homeDir,
+      projectKey: existing.projectKey,
+      sessionId: opts.conversationId,
+      caches: opts.caches,
+      now,
+    });
+    if (!rescanned) {
+      opts.store.remove(opts.conversationId);
+      return "removed";
+    }
+    merged = rescanned;
+  }
 
   if (!isSessionVisible(merged, now)) {
     opts.store.remove(opts.conversationId);
