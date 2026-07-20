@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { aggregateSessions, workspaceDirExists } from "./aggregator.js";
+import {
+  aggregateSessions,
+  isSessionVisible,
+  workspaceDirExists,
+} from "./aggregator.js";
 import { liveDir, SCAN_LOOKBACK_MS } from "./constants.js";
 import {
   buildState,
@@ -10,9 +14,16 @@ import {
 import type { ScanCaches } from "./scan-caches.js";
 import { mergeSessionExtras, type LiveSnapshot } from "./live-state.js";
 import { parseLiveSnapshot } from "./live-store.js";
+import type { SessionStore } from "./store.js";
 import type { SessionState } from "./types.js";
 
 export { readProjectShellFlags } from "./scanner.js";
+
+/** Clear live-derived fields so mergeSessionExtras re-applies from the snap. */
+function stripLiveFields(session: SessionState): SessionState {
+  const { live: _l, turnEnded: _t, liveHint: _h, ...rest } = session;
+  return rest;
+}
 
 function readLiveSnap(
   homeDir: string,
@@ -116,4 +127,62 @@ export function rescanParentSession(opts: {
 
   const aggregated = aggregateSessions(raw, now, workspaceExists);
   return aggregated.find((s) => s.id === opts.sessionId) ?? null;
+}
+
+export function applyLivePatch(opts: {
+  conversationId: string;
+  store: SessionStore;
+  caches: ScanCaches;
+  homeDir: string;
+  now?: number;
+}): "upserted" | "missing" | "removed" {
+  const now = opts.now ?? Date.now();
+  const existing = opts.store
+    .getSessions()
+    .find((s) => s.id === opts.conversationId);
+  if (!existing) return "missing";
+
+  const snap = readLiveSnap(opts.homeDir, opts.conversationId);
+  const merged = mergeSessionExtras(
+    stripLiveFields(existing),
+    opts.caches.getHeader(opts.conversationId),
+    snap,
+    now,
+  );
+
+  if (!isSessionVisible(merged, now)) {
+    opts.store.remove(opts.conversationId);
+    return "removed";
+  }
+
+  opts.store.upsert(merged);
+  return "upserted";
+}
+
+export function rescanProjectShells(opts: {
+  projectsDir: string;
+  projectKey: string;
+  store: SessionStore;
+  caches: ScanCaches;
+  homeDir: string;
+  now?: number;
+}): void {
+  const now = opts.now ?? Date.now();
+  const ids = opts.store
+    .getSessions()
+    .filter((s) => s.projectKey === opts.projectKey)
+    .map((s) => s.id);
+
+  for (const sessionId of ids) {
+    const next = rescanParentSession({
+      projectsDir: opts.projectsDir,
+      homeDir: opts.homeDir,
+      projectKey: opts.projectKey,
+      sessionId,
+      caches: opts.caches,
+      now,
+    });
+    if (next) opts.store.upsert(next);
+    else opts.store.remove(sessionId);
+  }
 }

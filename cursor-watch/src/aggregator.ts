@@ -20,6 +20,16 @@ export function workspaceDirExists(workspacePath: string): boolean {
   }
 }
 
+/** Same predicate as aggregateSessions display filter (workspace + unread/active window). */
+export function isSessionVisible(
+  s: SessionState,
+  now: number,
+  workspaceExists: (workspacePath: string) => boolean = workspaceDirExists,
+): boolean {
+  if (!workspaceExists(s.workspacePath)) return false;
+  return Boolean(s.hasUnread) || now - s.lastActivityAt <= ACTIVE_WINDOW_MS;
+}
+
 export function aggregateSessions(
   sessions: SessionState[],
   now = Date.now(),
@@ -43,10 +53,9 @@ export function aggregateSessions(
     }
   }
 
-  const merged = [...byId.values()].filter((s) => {
-    if (!workspaceExists(s.workspacePath)) return false;
-    return s.hasUnread || now - s.lastActivityAt <= ACTIVE_WINDOW_MS;
-  });
+  const merged = [...byId.values()].filter((s) =>
+    isSessionVisible(s, now, workspaceExists),
+  );
 
   merged.sort((a, b) => {
     const rd = STATUS_RANK[a.status] - STATUS_RANK[b.status];
