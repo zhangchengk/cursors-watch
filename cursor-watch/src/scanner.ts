@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { aggregateSessions } from "./aggregator.js";
+import { aggregateSessions, workspaceDirExists } from "./aggregator.js";
 import { loadComposerHeadersMetaFromHome } from "./chat-names.js";
 import { liveDir, SCAN_LOOKBACK_MS } from "./constants.js";
 import { inferSessionFields } from "./infer/status.js";
@@ -11,10 +11,97 @@ import { parseTerminalMeta } from "./terminals.js";
 import type { SessionState } from "./types.js";
 import { buildWorkspaceIndex, resolveWorkspace } from "./workspace.js";
 
+export function readProjectShellFlags(
+  projectPath: string,
+  now: number,
+): { shellRunning: boolean; shellExitCode: number | null } {
+  let shellRunning = false;
+  let shellExitCode: number | null = null;
+  const mtimeCutoff = now - SCAN_LOOKBACK_MS;
+  const termDir = path.join(projectPath, "terminals");
+  if (!fs.existsSync(termDir)) {
+    return { shellRunning, shellExitCode };
+  }
+  for (const name of fs.readdirSync(termDir)) {
+    if (!name.endsWith(".txt")) continue;
+    try {
+      const termPath = path.join(termDir, name);
+      if (fs.statSync(termPath).mtimeMs < mtimeCutoff) continue;
+      const meta = parseTerminalMeta(fs.readFileSync(termPath, "utf8"));
+      if (meta.running) shellRunning = true;
+      if (meta.exitCode !== null && meta.exitCode !== 0) {
+        shellExitCode = meta.exitCode;
+      }
+    } catch {
+      /* ignore bad terminal files */
+    }
+  }
+  return { shellRunning, shellExitCode };
+}
+
+export function collectMirroredSubagentIds(
+  transcriptsRoot: string,
+  sessionIds: string[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const sessionId of sessionIds) {
+    const subDir = path.join(transcriptsRoot, sessionId, "subagents");
+    let names: string[];
+    try {
+      names = fs.readdirSync(subDir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.endsWith(".jsonl")) continue;
+      ids.add(name.slice(0, -".jsonl".length));
+    }
+  }
+  return ids;
+}
+
+export function buildState(opts: {
+  file: string;
+  projectKey: string;
+  workspacePath: string;
+  workspaceLabel: string;
+  now: number;
+  shellRunning: boolean;
+  shellExitCode: number | null;
+  parentId?: string;
+}): SessionState {
+  const parsed = parseTranscriptFile(opts.file, opts.now, opts.parentId);
+  const inferred = inferSessionFields({
+    parsed,
+    now: opts.now,
+    shellRunning: opts.shellRunning,
+    shellExitCode: opts.shellExitCode,
+    subagentRunning: 0,
+  });
+  return {
+    id: parsed.id,
+    projectKey: opts.projectKey,
+    workspacePath: opts.workspacePath,
+    workspaceLabel: opts.workspaceLabel,
+    status: inferred.status,
+    summary: parsed.summary,
+    currentAction: inferred.currentAction,
+    lastActivityAt: parsed.lastActivityAt,
+    waitingSince: inferred.waitingSince,
+    runningSince: inferred.runningSince,
+    subagentCount: 0,
+    subagentRunning: 0,
+    transcriptPath: parsed.transcriptPath,
+    recentMessages: parsed.recentMessages,
+    parentId: opts.parentId,
+  };
+}
+
 export function scanProjects(
   projectsDir: string,
   homeDir: string,
   now = Date.now(),
+  workspaceExists: (workspacePath: string) => boolean = workspaceDirExists,
 ): SessionState[] {
   const raw: SessionState[] = [];
   if (!fs.existsSync(projectsDir)) return [];
@@ -73,25 +160,10 @@ export function scanProjects(
       index,
     );
 
-    let shellRunning = false;
-    let shellExitCode: number | null = null;
-    const termDir = path.join(projectPath, "terminals");
-    if (fs.existsSync(termDir)) {
-      for (const name of fs.readdirSync(termDir)) {
-        if (!name.endsWith(".txt")) continue;
-        try {
-          const termPath = path.join(termDir, name);
-          if (fs.statSync(termPath).mtimeMs < mtimeCutoff) continue;
-          const meta = parseTerminalMeta(fs.readFileSync(termPath, "utf8"));
-          if (meta.running) shellRunning = true;
-          if (meta.exitCode !== null && meta.exitCode !== 0) {
-            shellExitCode = meta.exitCode;
-          }
-        } catch {
-          /* ignore bad terminal files */
-        }
-      }
-    }
+    const { shellRunning, shellExitCode } = readProjectShellFlags(
+      projectPath,
+      now,
+    );
 
     for (const { sessionId, mainFile } of recentSessionFiles) {
       const parent = buildState({
@@ -137,63 +209,5 @@ export function scanProjects(
     }
   }
 
-  return aggregateSessions(raw, now);
-}
-
-function collectMirroredSubagentIds(
-  transcriptsRoot: string,
-  sessionIds: string[],
-): Set<string> {
-  const ids = new Set<string>();
-  for (const sessionId of sessionIds) {
-    const subDir = path.join(transcriptsRoot, sessionId, "subagents");
-    let names: string[];
-    try {
-      names = fs.readdirSync(subDir);
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      if (!name.endsWith(".jsonl")) continue;
-      ids.add(name.slice(0, -".jsonl".length));
-    }
-  }
-  return ids;
-}
-
-function buildState(opts: {
-  file: string;
-  projectKey: string;
-  workspacePath: string;
-  workspaceLabel: string;
-  now: number;
-  shellRunning: boolean;
-  shellExitCode: number | null;
-  parentId?: string;
-}): SessionState {
-  const parsed = parseTranscriptFile(opts.file, opts.now, opts.parentId);
-  const inferred = inferSessionFields({
-    parsed,
-    now: opts.now,
-    shellRunning: opts.shellRunning,
-    shellExitCode: opts.shellExitCode,
-    subagentRunning: 0,
-  });
-  return {
-    id: parsed.id,
-    projectKey: opts.projectKey,
-    workspacePath: opts.workspacePath,
-    workspaceLabel: opts.workspaceLabel,
-    status: inferred.status,
-    summary: parsed.summary,
-    currentAction: inferred.currentAction,
-    lastActivityAt: parsed.lastActivityAt,
-    waitingSince: inferred.waitingSince,
-    runningSince: inferred.runningSince,
-    subagentCount: 0,
-    subagentRunning: 0,
-    transcriptPath: parsed.transcriptPath,
-    recentMessages: parsed.recentMessages,
-    parentId: opts.parentId,
-  };
+  return aggregateSessions(raw, now, workspaceExists);
 }

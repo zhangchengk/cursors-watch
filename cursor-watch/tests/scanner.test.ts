@@ -30,7 +30,9 @@ describe("scanProjects", () => {
     // Fixture JSONL timestamps are ~1700000002000; keep now inside ACTIVE_WINDOW
     const now = 1_700_000_002_000 + 60_000;
     // homeDir chosen so decode may fail → label falls back to projectKey
-    const sessions = scanProjects(root, "/Users/test", now);
+    // Fixture home does not contain a real workspace dir for the projectKey;
+    // inject workspaceExists so aggregator visibility matches pre-filter behavior.
+    const sessions = scanProjects(root, "/Users/test", now, () => true);
     const parent = sessions.find((s) => s.id === "sess-1");
     expect(parent).toBeTruthy();
     expect(parent!.projectKey).toBe("Users-test-idea-Demo");
@@ -72,7 +74,7 @@ describe("scanProjects", () => {
       line(ts, "Task 4 已完成"),
     );
     const now = ts + 60_000;
-    const sessions = scanProjects(root, "/Users/test", now);
+    const sessions = scanProjects(root, "/Users/test", now, () => true);
     expect(sessions.map((s) => s.id)).toEqual([parentId]);
     expect(sessions[0].subagentCount).toBe(1);
     fs.rmSync(root, { recursive: true, force: true });
