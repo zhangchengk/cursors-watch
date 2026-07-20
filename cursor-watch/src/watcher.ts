@@ -84,18 +84,36 @@ export function startWatcher(
   const livePath = liveDir(homeDir);
   fs.mkdirSync(livePath, { recursive: true });
 
-  const watcher = chokidar.watch(
-    [
-      path.join(projectsDir, "**/agent-transcripts/**/*.jsonl"),
-      path.join(projectsDir, "**/terminals/*.txt"),
-      livePath,
-    ],
-    {
-      ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
-      depth: 8,
-    },
-  );
+  // chokidar v4+ dropped glob support; watch directory roots and filter.
+  const projectsRoot = path.resolve(projectsDir);
+  const liveRoot = path.resolve(livePath);
+  const ignoreWatchPath = (filePath: string, stats?: fs.Stats): boolean => {
+    const resolved = path.resolve(filePath);
+    if (resolved === projectsRoot || resolved === liveRoot) return false;
+
+    if (resolved === liveRoot || resolved.startsWith(liveRoot + path.sep)) {
+      if (!stats || stats.isDirectory()) return false;
+      return path.extname(resolved) !== ".json";
+    }
+
+    const rel = path.relative(projectsRoot, resolved);
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return true;
+    const segments = rel.split(path.sep);
+    if (segments.length === 1) return false;
+
+    const kind = segments[1];
+    if (kind !== "agent-transcripts" && kind !== "terminals") return true;
+    if (!stats || stats.isDirectory()) return false;
+    if (kind === "agent-transcripts") return path.extname(resolved) !== ".jsonl";
+    return path.extname(resolved) !== ".txt";
+  };
+
+  const watcher = chokidar.watch([projectsRoot, liveRoot], {
+    ignoreInitial: true,
+    awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
+    depth: 8,
+    ignored: ignoreWatchPath,
+  });
   watcher.on("all", (event, p) => controller.onFsEvent(event, p));
 
   controller.start();
