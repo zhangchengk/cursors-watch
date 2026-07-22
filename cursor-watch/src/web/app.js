@@ -1,4 +1,18 @@
-import { attentionCardLines, sortAttentionSessions } from "./group-sessions.js";
+import {
+  loadPrefs,
+  saveViewMode,
+  saveAttentionColumns,
+  clampAttentionColumns,
+  effectiveAttentionColumns,
+  MIN_ATTENTION_COLUMNS,
+  MAX_ATTENTION_COLUMNS,
+} from "./prefs.js";
+import {
+  attentionCardLines,
+  sortAttentionSessions,
+  groupSessionsForUi,
+  formatStatusSummary,
+} from "./group-sessions.js";
 import {
   formatActionLine,
   formatStatusSentence,
@@ -9,6 +23,10 @@ const listEl = document.getElementById("list");
 const countsEl = document.getElementById("counts");
 const drawerEl = document.getElementById("drawer");
 const toastEl = document.getElementById("toast");
+
+let prefs = loadPrefs();
+let latestSessions = [];
+let resizeTimer = null;
 
 let toastTimer = null;
 function showToast(message) {
@@ -66,63 +84,165 @@ function completionBanner(s) {
   return "";
 }
 
-function render(sessions) {
-  const counts = { waiting: 0, running: 0, subagent: 0, idle: 0, error: 0 };
-  for (const s of sessions) counts[s.status] = (counts[s.status] ?? 0) + 1;
-  countsEl.textContent = `🟢${counts.running} 🟡${counts.waiting} 🔵${counts.subagent} ⚪${counts.idle} 🔴${counts.error}`;
+function syncChrome() {
+  const modeAttention = document.getElementById("modeAttention");
+  const modeWorkspace = document.getElementById("modeWorkspace");
+  if (modeAttention) {
+    modeAttention.classList.toggle("active", prefs.viewMode === "attention");
+  }
+  if (modeWorkspace) {
+    modeWorkspace.classList.toggle("active", prefs.viewMode === "workspace");
+  }
+  const colsControl = document.getElementById("colsControl");
+  if (colsControl) {
+    colsControl.hidden = prefs.viewMode !== "attention";
+  }
+  const colsValue = document.getElementById("colsValue");
+  if (colsValue) {
+    colsValue.textContent = String(prefs.attentionColumns);
+  }
+}
 
-  listEl.innerHTML = "";
+function mountCard(s, { showPathBar = false } = {}) {
+  const card = document.createElement("div");
+  card.className = `card attention ${s.status}`;
+  card.tabIndex = 0;
+  const lines = attentionCardLines(s);
+  const banner = completionBanner(s);
+  const openBtn = s.workspacePath
+    ? `<button type="button" class="open-cursor" title="在 Cursor 中打开工程">↗</button>`
+    : "";
+  const liveBit = s.live
+    ? `<span class="live-inline">LIVE</span> ${escapeHtml(s.liveHint || lines.subtitle)}`
+    : escapeHtml(lines.subtitle);
+  const dir =
+    showPathBar && lines.workspaceDir
+      ? `<div class="workspace-path" title="${escapeHtml(lines.workspacePath || lines.workspaceDir)}">${escapeHtml(lines.workspaceDir)}</div>`
+      : "";
+  card.innerHTML = `
+    <div class="summary-row">
+      <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(lines.title)} · ${formatDuration(lines.ageMs)}</div>
+      ${openBtn}
+    </div>
+    ${liveBit ? `<div class="action">${liveBit}</div>` : ""}
+    ${dir}
+    ${banner ? `<div class="completion">${escapeHtml(banner)}</div>` : ""}
+  `;
+  card.classList.toggle("is-live", Boolean(s.live));
+  const openMain = () => openDrawer(s);
+  card.addEventListener("click", (ev) => {
+    if (ev.target.closest(".open-cursor")) return;
+    openMain();
+  });
+  card.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      if (ev.target.closest(".open-cursor")) return;
+      ev.preventDefault();
+      openMain();
+    }
+  });
+  const ob = card.querySelector(".open-cursor");
+  if (ob) {
+    ob.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      void openInCursor(s.workspacePath);
+    });
+  }
+  return card;
+}
+
+function renderAttention(sessions) {
+  const cols = effectiveAttentionColumns(prefs.attentionColumns, window.innerWidth);
+  listEl.className = "list-attention";
+  listEl.style.setProperty("--attention-cols", String(cols));
   if (!sessions.length) {
     listEl.innerHTML = `<p class="empty-state">暂无需要关注的会话</p>`;
     return;
   }
   const ordered = sortAttentionSessions(sessions);
   for (const s of ordered) {
-    const card = document.createElement("div");
-    card.className = `card attention ${s.status}`;
-    card.tabIndex = 0;
-    const lines = attentionCardLines(s);
-    const banner = completionBanner(s);
-    const openBtn = s.workspacePath
-      ? `<button type="button" class="open-cursor" title="在 Cursor 中打开工程">↗</button>`
-      : "";
-    const liveBit = s.live
-      ? `<span class="live-inline">LIVE</span> ${escapeHtml(s.liveHint || lines.subtitle)}`
-      : escapeHtml(lines.subtitle);
-    const dir = lines.workspaceDir
-      ? `<div class="workspace-path" title="${escapeHtml(lines.workspacePath || lines.workspaceDir)}">${escapeHtml(lines.workspaceDir)}</div>`
-      : "";
-    card.innerHTML = `
-      <div class="summary-row">
-        <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(lines.title)} · ${formatDuration(lines.ageMs)}</div>
-        ${openBtn}
-      </div>
-      ${liveBit ? `<div class="action">${liveBit}</div>` : ""}
-      ${dir}
-      ${banner ? `<div class="completion">${escapeHtml(banner)}</div>` : ""}
-    `;
-    card.classList.toggle("is-live", Boolean(s.live));
-    const openMain = () => openDrawer(s);
-    card.addEventListener("click", (ev) => {
-      if (ev.target.closest(".open-cursor")) return;
-      openMain();
-    });
-    card.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") {
-        if (ev.target.closest(".open-cursor")) return;
-        ev.preventDefault();
-        openMain();
-      }
-    });
-    const ob = card.querySelector(".open-cursor");
-    if (ob) {
-      ob.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        void openInCursor(s.workspacePath);
-      });
-    }
-    listEl.appendChild(card);
+    listEl.appendChild(mountCard(s, { showPathBar: true }));
   }
+}
+
+function renderWorkspace(sessions) {
+  listEl.className = "list-workspace";
+  listEl.style.removeProperty("--attention-cols");
+  if (!sessions.length) {
+    listEl.innerHTML = `<p class="empty-state">暂无需要关注的会话</p>`;
+    return;
+  }
+  const groups = groupSessionsForUi(sessions);
+  for (const g of groups) {
+    const section = document.createElement("section");
+    section.className = "workspace-group";
+
+    const header = document.createElement("div");
+    header.className = "group-header";
+    const summary = formatStatusSummary(g.statusCounts);
+    header.textContent = summary
+      ? `${g.label} · 显示 ${g.sessions.length} / 组内 ${g.totalCount} · ${summary}`
+      : `${g.label} · 显示 ${g.sessions.length} / 组内 ${g.totalCount}`;
+    section.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "group-sessions";
+    for (const s of g.sessions) {
+      body.appendChild(mountCard(s, { showPathBar: false }));
+    }
+    section.appendChild(body);
+    listEl.appendChild(section);
+  }
+}
+
+function render(sessions) {
+  latestSessions = sessions || [];
+  const counts = { waiting: 0, running: 0, subagent: 0, idle: 0, error: 0 };
+  for (const s of latestSessions) counts[s.status] = (counts[s.status] ?? 0) + 1;
+  countsEl.textContent = `🟢${counts.running} 🟡${counts.waiting} 🔵${counts.subagent} ⚪${counts.idle} 🔴${counts.error}`;
+
+  listEl.innerHTML = "";
+  if (prefs.viewMode === "workspace") renderWorkspace(latestSessions);
+  else renderAttention(latestSessions);
+  syncChrome();
+}
+
+function bindViewControls() {
+  const modeAttention = document.getElementById("modeAttention");
+  const modeWorkspace = document.getElementById("modeWorkspace");
+  const setMode = (mode) => {
+    if (mode !== "attention" && mode !== "workspace") return;
+    prefs.viewMode = mode;
+    saveViewMode(mode);
+    render(latestSessions);
+  };
+  if (modeAttention) {
+    modeAttention.addEventListener("click", () => setMode("attention"));
+  }
+  if (modeWorkspace) {
+    modeWorkspace.addEventListener("click", () => setMode("workspace"));
+  }
+
+  const colsDec = document.getElementById("colsDec");
+  const colsInc = document.getElementById("colsInc");
+  const bumpCols = (delta) => {
+    const next = Math.min(
+      MAX_ATTENTION_COLUMNS,
+      Math.max(MIN_ATTENTION_COLUMNS, prefs.attentionColumns + delta),
+    );
+    prefs.attentionColumns = clampAttentionColumns(next);
+    saveAttentionColumns(prefs.attentionColumns);
+    render(latestSessions);
+  };
+  if (colsDec) colsDec.addEventListener("click", () => bumpCols(-1));
+  if (colsInc) colsInc.addEventListener("click", () => bumpCols(1));
+
+  window.addEventListener("resize", () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (prefs.viewMode === "attention") render(latestSessions);
+    }, 100);
+  });
 }
 
 function openDrawer(s) {
@@ -266,6 +386,8 @@ function connectWs() {
 
 async function boot() {
   bindFullscreen();
+  bindViewControls();
+  syncChrome();
   await fetchSessions();
   connectWs();
 }

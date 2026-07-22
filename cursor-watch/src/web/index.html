@@ -10,6 +10,17 @@
     <header class="topbar">
       <h1>Cursor Agent 态势面板</h1>
       <div class="topbar-right">
+        <div class="view-controls" role="group" aria-label="视图">
+          <div class="seg" id="viewModeSeg">
+            <button type="button" data-mode="attention" class="seg-btn" id="modeAttention">注意力</button>
+            <button type="button" data-mode="workspace" class="seg-btn" id="modeWorkspace">按工程</button>
+          </div>
+          <div class="cols-control" id="colsControl" hidden>
+            <button type="button" id="colsDec" aria-label="减少列数">−</button>
+            <span id="colsValue">2</span>
+            <button type="button" id="colsInc" aria-label="增加列数">+</button>
+          </div>
+        </div>
         <div id="counts" class="counts"></div>
         <button type="button" id="fullscreenBtn" class="icon-btn" aria-pressed="false" title="全屏 (F)">
           全屏
