@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { aggregateSessions } from "../src/aggregator.js";
+import { IDLE_KEEP_MS, TURN_ENDED_KEEP_MS } from "../src/constants.js";
+import { aggregateSessions, isSessionVisible } from "../src/aggregator.js";
 import type { SessionState } from "../src/types.js";
 
 function sess(p: Partial<SessionState> & Pick<SessionState, "id" | "status">): SessionState {
@@ -18,11 +19,108 @@ function sess(p: Partial<SessionState> & Pick<SessionState, "id" | "status">): S
   };
 }
 
+describe("isSessionVisible layered retention", () => {
+  const now = 1_000_000;
+  const pathOk = () => true;
+
+  it("keeps unread forever", () => {
+    expect(
+      isSessionVisible(
+        sess({
+          id: "u",
+          status: "waiting",
+          hasUnread: true,
+          lastActivityAt: now - 10 * 60 * 60 * 1000,
+        }),
+        now,
+        pathOk,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps live / running / subagent / error", () => {
+    expect(
+      isSessionVisible(sess({ id: "l", status: "idle", live: true, lastActivityAt: now - 9e9 }), now, pathOk),
+    ).toBe(true);
+    expect(
+      isSessionVisible(sess({ id: "r", status: "running", lastActivityAt: now - 9e9 }), now, pathOk),
+    ).toBe(true);
+    expect(
+      isSessionVisible(sess({ id: "e", status: "error", lastActivityAt: now - 9e9 }), now, pathOk),
+    ).toBe(true);
+  });
+
+  it("keeps turnEnded read only within TURN_ENDED_KEEP_MS", () => {
+    const base = {
+      id: "t",
+      status: "idle" as const,
+      hasUnread: false,
+      turnEnded: true,
+      lastActivityAt: now - 9e9,
+    };
+    expect(
+      isSessionVisible(
+        sess({ ...base, turnEndedAt: now - TURN_ENDED_KEEP_MS + 1_000 }),
+        now,
+        pathOk,
+      ),
+    ).toBe(true);
+    expect(
+      isSessionVisible(
+        sess({ ...base, turnEndedAt: now - TURN_ENDED_KEEP_MS - 1 }),
+        now,
+        pathOk,
+      ),
+    ).toBe(false);
+  });
+
+  it("falls back to lastActivityAt when turnEndedAt missing", () => {
+    expect(
+      isSessionVisible(
+        sess({
+          id: "t2",
+          status: "idle",
+          turnEnded: true,
+          hasUnread: false,
+          lastActivityAt: now - TURN_ENDED_KEEP_MS + 1_000,
+        }),
+        now,
+        pathOk,
+      ),
+    ).toBe(true);
+  });
+
+  it("drops plain idle older than IDLE_KEEP_MS", () => {
+    expect(
+      isSessionVisible(
+        sess({
+          id: "old",
+          status: "idle",
+          lastActivityAt: now - IDLE_KEEP_MS - 1,
+        }),
+        now,
+        pathOk,
+      ),
+    ).toBe(false);
+    expect(
+      isSessionVisible(
+        sess({
+          id: "fresh",
+          status: "idle",
+          lastActivityAt: now - IDLE_KEEP_MS + 1_000,
+        }),
+        now,
+        pathOk,
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("aggregateSessions", () => {
   const now = 1_000_000;
   const pathOk = (p: string) => Boolean(p?.trim());
 
-  it("drops sessions colder than ACTIVE_WINDOW except unread", () => {
+  it("drops sessions colder than IDLE_KEEP_MS except unread", () => {
     const out = aggregateSessions(
       [
         sess({ id: "old", status: "idle", lastActivityAt: now - 3 * 60 * 60 * 1000 }),
@@ -35,8 +133,8 @@ describe("aggregateSessions", () => {
         sess({
           id: "wait-fresh",
           status: "waiting",
-          lastActivityAt: now - 30 * 60 * 1000,
-          waitingSince: now - 30 * 60 * 1000,
+          lastActivityAt: now - 5 * 60 * 1000,
+          waitingSince: now - 5 * 60 * 1000,
         }),
         sess({
           id: "unread-old",

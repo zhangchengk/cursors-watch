@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { ACTIVE_WINDOW_MS } from "./constants.js";
+import { IDLE_KEEP_MS, TURN_ENDED_KEEP_MS } from "./constants.js";
 import type { AgentStatus, SessionState } from "./types.js";
 
 const STATUS_RANK: Record<AgentStatus, number> = {
@@ -20,14 +20,22 @@ export function workspaceDirExists(workspacePath: string): boolean {
   }
 }
 
-/** Same predicate as aggregateSessions display filter (workspace + unread/active window). */
+/** Same predicate as aggregateSessions display filter (workspace + layered retention). */
 export function isSessionVisible(
   s: SessionState,
   now: number,
   workspaceExists: (workspacePath: string) => boolean = workspaceDirExists,
 ): boolean {
   if (!workspaceExists(s.workspacePath)) return false;
-  return Boolean(s.hasUnread) || now - s.lastActivityAt <= ACTIVE_WINDOW_MS;
+  if (s.hasUnread) return true;
+  if (s.live || s.status === "running" || s.status === "subagent" || s.status === "error") {
+    return true;
+  }
+  if (s.turnEnded) {
+    const endedAt = s.turnEndedAt ?? s.lastActivityAt;
+    return now - endedAt <= TURN_ENDED_KEEP_MS;
+  }
+  return now - s.lastActivityAt <= IDLE_KEEP_MS;
 }
 
 export function aggregateSessions(
