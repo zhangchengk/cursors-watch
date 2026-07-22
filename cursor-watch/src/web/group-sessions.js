@@ -1,26 +1,4 @@
-const GROUP_TOP_N = 4;
-
-export function groupKey(session) {
-  if (session.workspacePath) return session.workspacePath;
-  if (session.workspaceLabel) return session.workspaceLabel;
-  return session.projectKey || "";
-}
-
-export function groupLabel(session, key) {
-  if (session.workspaceLabel) return session.workspaceLabel;
-  return key;
-}
-
-function activityAt(s) {
-  return s.composerUpdatedAt ?? s.lastActivityAt ?? 0;
-}
-
-function hasReminder(s) {
-  return Boolean(s.hasUnread || s.turnEnded);
-}
-
-/** 0 正在运行 → 1 待查看 → 2 本轮结束/其它 */
-function cardBucket(s) {
+export function urgencyBucket(s) {
   if (
     s.live ||
     s.status === "running" ||
@@ -29,82 +7,34 @@ function cardBucket(s) {
   ) {
     return 0;
   }
-  if (s.hasUnread || s.status === "waiting") {
-    return 1;
-  }
+  if (s.hasUnread || s.status === "waiting") return 1;
   return 2;
 }
 
-function cmpCard(a, b) {
-  const ba = cardBucket(a);
-  const bb = cardBucket(b);
-  if (ba !== bb) return ba - bb;
-  return activityAt(b) - activityAt(a);
+function activityAt(s) {
+  return s.composerUpdatedAt ?? s.lastActivityAt ?? 0;
 }
 
-/** Group ordering uses first-card urgency (same keys as within-group). */
-function cmpSession(a, b) {
-  return cmpCard(a, b);
+export function sortAttentionSessions(sessions) {
+  return [...(sessions || [])].sort((a, b) => {
+    const d = urgencyBucket(a) - urgencyBucket(b);
+    if (d !== 0) return d;
+    return activityAt(b) - activityAt(a);
+  });
 }
 
-function cmpGroup(a, b) {
-  const topA = a.sessions[0];
-  const topB = b.sessions[0];
-  return cmpSession(topA, topB);
-}
-
-function limitGroupSessions(sessions) {
-  const sortedByActivity = [...sessions].sort((a, b) => activityAt(b) - activityAt(a));
-  const top = sortedByActivity.slice(0, GROUP_TOP_N);
-  const ids = new Set(top.map((s) => s.id));
-  for (const s of sessions) {
-    if (hasReminder(s) && !ids.has(s.id)) {
-      top.push(s);
-      ids.add(s.id);
-    }
-  }
-  return top.sort(cmpCard);
-}
-
-function recountStatuses(sessions) {
-  const statusCounts = {};
-  for (const s of sessions) {
-    const st = s.status || "idle";
-    statusCounts[st] = (statusCounts[st] || 0) + 1;
-  }
-  return statusCounts;
-}
-
-/**
- * @param {Array<Record<string, unknown>>} sessions
- * @returns {Array<{ key: string, label: string, sessions: Array<Record<string, unknown>>, statusCounts: Record<string, number>, totalCount: number }>}
- */
+/** Temporary shim until Task 6 removes group wall usage from app.js */
 export function groupSessionsForUi(sessions) {
-  const map = new Map();
-  for (const s of sessions || []) {
-    const key = groupKey(s);
-    let g = map.get(key);
-    if (!g) {
-      g = {
-        key,
-        label: groupLabel(s, key),
-        sessions: [],
-        statusCounts: {},
-        totalCount: 0,
-      };
-      map.set(key, g);
-    }
-    g.sessions.push(s);
-  }
-
-  const groups = [...map.values()];
-  for (const g of groups) {
-    g.totalCount = g.sessions.length;
-    g.sessions = limitGroupSessions(g.sessions);
-    g.statusCounts = recountStatuses(g.sessions);
-  }
-  groups.sort(cmpGroup);
-  return groups;
+  const list = sessions || [];
+  return [
+    {
+      key: "",
+      label: "",
+      sessions: sortAttentionSessions(list),
+      statusCounts: {},
+      totalCount: list.length,
+    },
+  ];
 }
 
 export function formatStatusSummary(statusCounts) {

@@ -25,7 +25,6 @@ export function stateDir(home = os.homedir()): string {
 }
 
 export const LIVE_TTL_MS = 60 * 1000;
-export const GROUP_TOP_N = 4;
 
 export function liveDir(home = os.homedir()): string {
   return path.join(stateDir(home), "live");
