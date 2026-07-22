@@ -89,15 +89,16 @@ function render(sessions) {
     const liveBit = s.live
       ? `<span class="live-inline">LIVE</span> ${escapeHtml(s.liveHint || lines.subtitle)}`
       : escapeHtml(lines.subtitle);
+    const dir = lines.workspaceDir
+      ? `<div class="workspace-path" title="${escapeHtml(lines.workspacePath || lines.workspaceDir)}">${escapeHtml(lines.workspaceDir)}</div>`
+      : "";
     card.innerHTML = `
       <div class="summary-row">
         <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(lines.title)} · ${formatDuration(lines.ageMs)}</div>
         ${openBtn}
       </div>
-      <div class="card-sub">
-        <div class="action">${liveBit}</div>
-        <div class="workspace-tag">${escapeHtml(lines.workspaceLabel)}</div>
-      </div>
+      ${liveBit ? `<div class="action">${liveBit}</div>` : ""}
+      ${dir}
       ${banner ? `<div class="completion">${escapeHtml(banner)}</div>` : ""}
     `;
     card.classList.toggle("is-live", Boolean(s.live));
