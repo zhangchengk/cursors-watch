@@ -37,29 +37,29 @@
 
 1. `hasUnread === true` → 可见（无时间上限）  
 2. 进行中：`live === true` 或 `status ∈ {running, subagent, error}` → 可见  
-3. `turnEnded === true` 且非未读 → 仅当 `now - (stoppedAt ?? lastActivityAt) ≤ TURN_ENDED_KEEP_MS`（**30min**）可见  
+3. `turnEnded === true` 且非未读 → 仅当 `now - turnEndedAt ≤ TURN_ENDED_KEEP_MS`（**30min**）可见  
 4. 其余 idle → 仅当 `now - lastActivityAt ≤ IDLE_KEEP_MS`（**15min**）可见  
 
 说明：
 
-- 旧 `ACTIVE_WINDOW_MS`（1h）作为纯活动窗口角色由 `IDLE_KEEP_MS` 取代；实现时可删除或令其等于 `IDLE_KEEP_MS`，避免双常量漂移。  
+- 旧 `ACTIVE_WINDOW_MS`（1h）作为纯活动窗口角色由 `IDLE_KEEP_MS` 取代；实现时删除 `ACTIVE_WINDOW_MS` 或令其等于 `IDLE_KEEP_MS`，避免双常量漂移。  
 - `turnEnded` **不得**单独成为「永久提醒」保留条件（修正 UI `hasReminder` 含 `turnEnded` 强留 TopN 的行为；分组墙移除后该路径一并删除）。  
-- Live 快照的 `stoppedAt` 若可得，优先用于 `turnEnded` 计时；否则回退 `lastActivityAt`。
+- **`turnEndedAt`**：合并 live 快照时写入 `SessionState`（取自 snapshot `stoppedAt`）；若缺失则回退 `lastActivityAt`。不要只在 live 文件里留 `stoppedAt` 却不进 store，否则 prune 无法正确计时。
 
 ### 4.1 Prune（防幽灵）
 
 - 全量扫描 / 增量路径继续在写入前用 `isSessionVisible` 过滤。  
-- **额外**：daemon 侧短周期 prune（建议 **30–60s**）：遍历 `SessionStore`，不可见则 `remove`。  
+- **额外**：daemon 侧短周期 prune（**`VISIBILITY_PRUNE_MS = 30_000`**）：遍历 `SessionStore`，不可见则 `remove`。  
 - 不依赖「碰巧 5min 全量扫描」才清掉过期 idle。  
 - prune 失败只打日志，不拖垮进程。
 
-### 4.2 常量（拟）
+### 4.2 常量
 
 | 常量 | 值 | 含义 |
 |------|-----|------|
 | `TURN_ENDED_KEEP_MS` | 30 × 60 × 1000 | 已读本轮结束最长展示 |
 | `IDLE_KEEP_MS` | 15 × 60 × 1000 | 无未读、非进行中、非短驻 turnEnded 的 idle |
-| `VISIBILITY_PRUNE_MS` | 30_000–60_000 | store prune 间隔 |
+| `VISIBILITY_PRUNE_MS` | 30_000 | store prune 间隔 |
 
 ## 5. 前端：注意力扁平列表
 
