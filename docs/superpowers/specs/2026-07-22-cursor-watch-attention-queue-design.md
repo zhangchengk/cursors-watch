@@ -1,6 +1,6 @@
 # cursor-watch：注意力队列 + 分层保留设计
 
-状态：已评审共识  
+状态：已实现  
 日期：2026-07-22  
 范围：修复已读/`turnEnded` 会话过久滞留；将面板默认交互改为扁平「注意力队列」  
 前置：`docs/superpowers/specs/2026-07-16-cursor-agent-dashboard-design.md`、`2026-07-16-cursor-watch-group-by-workspace-design.md`（分组墙将被本设计取代为默认视图）

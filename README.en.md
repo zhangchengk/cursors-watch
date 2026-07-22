@@ -6,13 +6,13 @@
 
 `cursor-watch` is a **local, read-only situational panel** for Cursor Agent: see in a browser which sessions are running and which are waiting on you.
 
-When you run agents across multiple projects, it groups sessions by workspace and surfaces unread / “turn ended” signals. Optional hooks add a LIVE marquee and more accurate “running” status. From the panel you can **open the matching workspace folder** in Cursor on this Mac — it does **not** deep-link into a specific Agent/chat, and it does **not** modify, inject, or orchestrate sessions.
+When you run agents across multiple projects, it shows a flat **attention queue** sorted by urgency, and surfaces unread / “turn ended” signals. Optional hooks add a LIVE marquee and more accurate “running” status. From the panel you can **open the matching workspace folder** in Cursor on this Mac — it does **not** deep-link into a specific Agent/chat, and it does **not** modify, inject, or orchestrate sessions.
 
 It is not a task hub, not remote monitoring, and not a replacement for Cursor’s sidebar. It only reads local Cursor data (see below). **macOS only** (opening the browser and the workspace relies on macOS `open` / `open -a Cursor`; other platforms are unsupported). The server binds to localhost and shows paths and message excerpts in the clear (no redaction) — do not expose the port to the network.
 
 ## Screenshot
 
-![Cursor Agent situational panel: sessions grouped by workspace, with LIVE badge and status counts](./docs/images/panel.png)
+![Cursor Agent situational panel: flat attention-queue session cards, with LIVE badge and status counts](./docs/images/panel.png)
 
 ## Requirements
 
@@ -75,8 +75,8 @@ With hooks you get an extra LIVE snapshot stream (tool use / response / stop), a
 
 ## Reading the panel
 
-- Sessions are grouped by **workspace** (project path). Group headers show the path, “showing k / m in group”, and a per-group status summary.
-- Each group shows up to **Top 4** cards by default, and always keeps sessions with unread or “turn ended” reminders.
+- Default view is a flat **attention queue** (two-line cards): sorted by urgency, with a workspace label on each card; no workspace group wall and no “more” history section.
+- **Retention** (server-side single truth): unread kept indefinitely; in-progress always visible; read + turn-ended up to about **30 minutes**; pure idle up to about **15 minutes**.
 - The top-bar colored dots are global session counts (same colors as card dots): running, waiting, subagent, idle/read, error.
 - Card titles prefer the Agent sidebar chat name; otherwise they fall back to the first user-message summary.
 - **LIVE** sessions show a mini marquee (or a LIVE badge); hooks make this more timely.
@@ -111,7 +111,7 @@ Flow:
 1. `cursor-watch open` starts the daemon if the port is free, then opens the browser.
 2. The watcher (chokidar) triggers scan-worker to scan and infer session state into an in-memory store.
 3. The UI loads `GET /api/sessions` and receives updates on `/ws`.
-4. Before display, child sessions are folded in, missing workspace directories are dropped, and sessions are kept if they have unread or activity within about one hour.
+4. Before display, child sessions are folded in, missing workspace directories are dropped, and sessions are trimmed by layered retention (unread / in-progress / turnEnded≤30min / idle≤15min).
 5. Running / waiting / LIVE come from transcripts, terminals, and optional live snapshots (details in the appendix).
 
 ## Trust boundary
@@ -140,7 +140,7 @@ Flow:
 | `chat-names.ts` | read-only `composerHeaders` (chat name, unread, …) |
 | `open-workspace.ts` | path allow-list, then macOS `open -a Cursor <path>` |
 | `server.ts` | static UI, `/api/*`, `/ws` |
-| `web/*` | panel UI, grouping, drawer copy |
+| `web/*` | panel UI, attention queue, drawer copy |
 
 ### Data sources
 
@@ -158,9 +158,9 @@ Transcripts older than **7 days** by mtime are skipped (`SCAN_LOOKBACK_MS`).
 | Constant | Default | Meaning |
 |---|---|---|
 | `DEFAULT_PORT` | `7423` | listen port (`CURSOR_WATCH_PORT` overrides) |
-| `ACTIVE_WINDOW_MS` | 1h | without unread, drop from panel after this |
+| `TURN_ENDED_KEEP_MS` | 30min | max keep for read + turnEnded |
+| `IDLE_KEEP_MS` | 15min | max keep for pure idle |
 | `RUNNING_WINDOW_MS` | 2min | “recently active” window for running inference |
-| `GROUP_TOP_N` | 4 | default cards per group (reminders always kept) |
 | `LIVE_TTL_MS` | 60s | how long a live snapshot counts as LIVE |
 | `RECENT_MESSAGE_COUNT` | 8 | recent messages in the drawer |
 
@@ -176,7 +176,7 @@ Transcripts older than **7 days** by mtime are skipped (`SCAN_LOOKBACK_MS`).
 
 **LIVE override (non-error):** live snapshot → force `running`; turn ended or non-running → `waiting` / `idle` from unread.
 
-**Kept after aggregate:** workspace directory still exists, and (`hasUnread` **or** within `ACTIVE_WINDOW_MS`).
+**Kept after aggregate:** workspace directory still exists, and layered visibility passes (unread forever; in-progress visible; read turnEnded ≤30min; pure idle ≤15min).
 
 ### HTTP / WebSocket
 

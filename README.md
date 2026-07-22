@@ -6,13 +6,13 @@
 
 `cursor-watch` 是本机 **Cursor Agent 只读态势面板**：在浏览器里查看哪些会话在跑、哪些在等你处理。
 
-多工程并行时，它按工作区分组展示会话状态，并标出未读与「本轮结束」。可选安装 hooks 后可显示 LIVE 迷你滚动与更准的「在跑」状态。面板上可 **打开对应工作区文件夹**（唤起本机 Cursor），但 **不会** 跳到某个具体 Agent/chat，也 **不会** 修改、注入或调度会话。
+多工程并行时，它以扁平「注意力队列」按紧迫度列出会话，并标出未读与「本轮结束」。可选安装 hooks 后可显示 LIVE 迷你滚动与更准的「在跑」状态。面板上可 **打开对应工作区文件夹**（唤起本机 Cursor），但 **不会** 跳到某个具体 Agent/chat，也 **不会** 修改、注入或调度会话。
 
 它不是任务中枢、不是远程监控，也不替代 Cursor 侧边栏。数据只读自本机 Cursor 目录（详见后文）；**仅支持 macOS**（拉起浏览器与打开工作区依赖系统的 `open` / `open -a Cursor`，其它平台不做兼容）。面板仅监听 localhost，展示路径与消息摘录原文、不做脱敏——请勿把端口暴露到公网。
 
 ## 截图
 
-![Cursor Agent 态势面板：按工作区分组的会话卡片，含 LIVE 与状态计数](./docs/images/panel.png)
+![Cursor Agent 态势面板：扁平注意力队列会话卡片，含 LIVE 与状态计数](./docs/images/panel.png)
 
 ## 要求
 
@@ -75,8 +75,8 @@ npx cursor-watch hooks uninstall
 
 ## 面板怎么读
 
-- 会话按**工作区**（工程路径）分区；组头显示路径、「显示 k / 组内 m」与组内状态摘要。
-- 每组默认最多展示 **Top 4** 张卡片，并始终保留带未读或「本轮结束」提醒的会话。
+- 默认是扁平**注意力队列**（两行卡）：按紧迫度排序，卡片上带工作区标签；不再按工作区分组，也没有「更多」历史区。
+- **保留策略**（服务端单一真相）：未读一直保留；进行中始终可见；已读且「本轮结束」最多约 **30 分钟**；纯 idle 最多约 **15 分钟**。
 - 顶栏彩色圆点是全局会话计数（与卡片状态点同色）：运行中、等待查看、子任务、空闲/已读、出错。
 - 卡片标题优先用 Cursor Agent 侧边栏的 chat 名称；没有则回退到首条用户消息摘要。
 - **LIVE** 会话显示迷你滚动（或 LIVE 徽标）；安装 hooks 后更及时。
@@ -111,7 +111,7 @@ CLI (open/status/stop)
 1. `cursor-watch open` 若端口未监听则拉起 daemon，再打开浏览器。
 2. watcher（chokidar）发现变更后，由 scan-worker 扫描并推断会话状态，写入内存 store。
 3. 面板通过 `GET /api/sessions` 取快照，经 `/ws` 接收后续更新。
-4. 展示前会聚合子会话、丢掉工作区目录已不存在的项，并保留「有未读」或约 1 小时内有活动的会话。
+4. 展示前会聚合子会话、丢掉工作区目录已不存在的项，并按分层保留策略裁剪（未读 / 进行中 / turnEnded≤30min / idle≤15min）。
 5. 「在跑 / 等待 / LIVE」等状态由 transcript、terminals 与可选 live 快照共同推断（细则见附录）。
 
 ## 信任边界
@@ -140,7 +140,7 @@ CLI (open/status/stop)
 | `chat-names.ts` | 只读 `composerHeaders`：chat 名、未读等 |
 | `open-workspace.ts` | 校验路径后，macOS 用 `open -a Cursor <path>` |
 | `server.ts` | 静态资源、`/api/*`、`/ws` |
-| `web/*` | 面板 UI、分组、抽屉文案 |
+| `web/*` | 面板 UI、注意力队列、抽屉文案 |
 
 ### 数据源
 
@@ -158,9 +158,9 @@ CLI (open/status/stop)
 | 常量 | 默认 | 含义 |
 |---|---|---|
 | `DEFAULT_PORT` | `7423` | 监听端口（可用 `CURSOR_WATCH_PORT` 覆盖） |
-| `ACTIVE_WINDOW_MS` | 1h | 无未读时，超过则不展示 |
+| `TURN_ENDED_KEEP_MS` | 30min | 已读且 turnEnded 的最长保留 |
+| `IDLE_KEEP_MS` | 15min | 纯 idle 的最长保留 |
 | `RUNNING_WINDOW_MS` | 2min | 「最近活跃」窗口，用于判定 running |
-| `GROUP_TOP_N` | 4 | 每组默认卡片上限（提醒会话另保留） |
 | `LIVE_TTL_MS` | 60s | live 快照视为 LIVE 的时长 |
 | `RECENT_MESSAGE_COUNT` | 8 | 抽屉最近消息条数 |
 
@@ -176,7 +176,7 @@ CLI (open/status/stop)
 
 **LIVE 盖写（非 error）**：hooks 显示 live → 强制 `running`；turn ended 或非运行态 → 按未读变为 `waiting` / `idle`。
 
-**聚合后保留**：工作区目录仍存在，且（`hasUnread` **或** 落在 `ACTIVE_WINDOW_MS` 内）。
+**聚合后保留**：工作区目录仍存在，且通过分层可见性（未读无上限；进行中可见；已读 turnEnded ≤30min；纯 idle ≤15min）。
 
 ### HTTP / WebSocket
 
