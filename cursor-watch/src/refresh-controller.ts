@@ -1,6 +1,7 @@
 import {
   FULL_SCAN_INTERVAL_MS,
   INCREMENTAL_DEBOUNCE_MS,
+  VISIBILITY_PRUNE_MS,
   liveDir,
 } from "./constants.js";
 import {
@@ -11,6 +12,7 @@ import {
 } from "./incremental-scan.js";
 import type { ScanCaches } from "./scan-caches.js";
 import type { SessionStore } from "./store.js";
+import { pruneInvisibleSessions } from "./visibility-prune.js";
 import { classifyWatchPath } from "./watch-path.js";
 
 const FULL_SCAN_DEBOUNCE_MS = 300;
@@ -54,6 +56,7 @@ export function createRefreshController(opts: {
   let fullScanTimer: ReturnType<typeof setTimeout> | null = null;
   let headersSyncTimer: ReturnType<typeof setTimeout> | null = null;
   let intervalId: ReturnType<typeof setInterval> | null = null;
+  let pruneTimer: ReturnType<typeof setInterval> | null = null;
   const keyTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingIncrementalKeys = new Set<string>();
 
@@ -241,12 +244,23 @@ export function createRefreshController(opts: {
   function start(): void {
     doFullScan();
     intervalId = setInterval(doFullScan, FULL_SCAN_INTERVAL_MS);
+    pruneTimer = setInterval(() => {
+      try {
+        pruneInvisibleSessions({ store: opts.store });
+      } catch (err) {
+        console.error("[cursor-watch] visibility prune failed", err);
+      }
+    }, VISIBILITY_PRUNE_MS);
   }
 
   function close(): void {
     if (intervalId) {
       clearInterval(intervalId);
       intervalId = null;
+    }
+    if (pruneTimer) {
+      clearInterval(pruneTimer);
+      pruneTimer = null;
     }
     if (fullScanTimer) {
       clearTimeout(fullScanTimer);
