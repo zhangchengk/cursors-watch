@@ -1,6 +1,6 @@
 # cursor-watch：双视图模式 + 路径条 + 可配列数设计
 
-状态：已评审共识  
+状态：已实现  
 日期：2026-07-22  
 范围：强化工程路径可见性；注意力模式可配置列数；恢复「按工程分组」并与注意力模式可切换  
 前置：`docs/superpowers/specs/2026-07-22-cursor-watch-attention-queue-design.md`

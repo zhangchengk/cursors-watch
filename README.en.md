@@ -6,7 +6,7 @@
 
 `cursor-watch` is a **local, read-only situational panel** for Cursor Agent: see in a browser which sessions are running and which are waiting on you.
 
-When you run agents across multiple projects, it shows a flat **attention queue** sorted by urgency, and surfaces unread / “turn ended” signals. Optional hooks add a LIVE marquee and more accurate “running” status. From the panel you can **open the matching workspace folder** in Cursor on this Mac — it does **not** deep-link into a specific Agent/chat, and it does **not** modify, inject, or orchestrate sessions.
+When you run agents across multiple projects, the panel switches between **Attention** and **By project**: Attention is an urgency-sorted multi-column queue; By project restores the workspace group wall. It also surfaces unread / “turn ended” signals. Optional hooks add a LIVE marquee and more accurate “running” status. From the panel you can **open the matching workspace folder** in Cursor on this Mac — it does **not** deep-link into a specific Agent/chat, and it does **not** modify, inject, or orchestrate sessions.
 
 It is not a task hub, not remote monitoring, and not a replacement for Cursor’s sidebar. It only reads local Cursor data (see below). **macOS only** (opening the browser and the workspace relies on macOS `open` / `open -a Cursor`; other platforms are unsupported). The server binds to localhost and shows paths and message excerpts in the clear (no redaction) — do not expose the port to the network.
 
@@ -75,7 +75,8 @@ With hooks you get an extra LIVE snapshot stream (tool use / response / stop), a
 
 ## Reading the panel
 
-- Default view is a flat **attention queue** (two-line cards): sorted by urgency, with a workspace label on each card; no workspace group wall and no “more” history section.
+- Top bar switches **Attention** / **By project**; Attention defaults to 2 columns (adjustable 1–4); prefs persist in localStorage.
+- Attention cards show a workspace path bar and sort by urgency; By project restores the group wall (Top4 per group + unread / turn-ended keep). Narrow viewports (&lt;720px) force 1 Attention column without changing the stored preference. There is no global “more” history section.
 - **Retention** (server-side single truth): unread kept indefinitely; in-progress always visible; read + turn-ended up to about **30 minutes**; pure idle up to about **15 minutes**.
 - The top-bar colored dots are global session counts (same colors as card dots): running, waiting, subagent, idle/read, error.
 - Card titles prefer the Agent sidebar chat name; otherwise they fall back to the first user-message summary.
@@ -140,7 +141,7 @@ Flow:
 | `chat-names.ts` | read-only `composerHeaders` (chat name, unread, …) |
 | `open-workspace.ts` | path allow-list, then macOS `open -a Cursor <path>` |
 | `server.ts` | static UI, `/api/*`, `/ws` |
-| `web/*` | panel UI, attention queue, drawer copy |
+| `web/*` | panel UI, dual views (Attention / By project), drawer copy |
 
 ### Data sources
 
