@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   attentionCardLines,
+  formatStatusSummary,
+  groupSessionsForUi,
   sortAttentionSessions,
   urgencyBucket,
 } from "../src/web/group-sessions.js";
@@ -47,12 +49,13 @@ describe("sortAttentionSessions", () => {
 });
 
 describe("attentionCardLines", () => {
-  it("attentionCardLines prefers chatName and exposes workspaceLabel", () => {
+  it("attentionCardLines prefers chatName and exposes full workspace path", () => {
     const lines = attentionCardLines(
       {
         chatName: "T",
         summary: "sum",
         workspaceLabel: "idea/X",
+        workspacePath: "/Users/zhangcheng/idea/X",
         status: "idle",
         lastActivityAt: 1_000,
       },
@@ -60,6 +63,72 @@ describe("attentionCardLines", () => {
     );
     expect(lines.title).toBe("T");
     expect(lines.workspaceLabel).toBe("idea/X");
+    expect(lines.workspacePath).toBe("/Users/zhangcheng/idea/X");
+    expect(lines.workspaceDir).toBe("/Users/zhangcheng/idea/X");
     expect(lines.ageMs).toBe(1_059_000);
+  });
+
+  it("falls back to workspaceLabel when path is empty", () => {
+    const lines = attentionCardLines({
+      workspaceLabel: "idea/X",
+      workspacePath: "",
+      status: "idle",
+      lastActivityAt: 1,
+    });
+    expect(lines.workspaceDir).toBe("idea/X");
+  });
+});
+
+function sess(partial) {
+  return {
+    id: "x",
+    status: "idle",
+    hasUnread: false,
+    turnEnded: false,
+    live: false,
+    lastActivityAt: 0,
+    workspacePath: "/w",
+    workspaceLabel: "w",
+    projectKey: "p",
+    ...partial,
+  };
+}
+
+describe("groupSessionsForUi restored", () => {
+  it("groups by workspacePath and limits to top 4 plus unread reminder", () => {
+    const sessions = [];
+    for (let i = 0; i < 5; i++) {
+      sessions.push(
+        sess({
+          id: `i${i}`,
+          workspacePath: "/a",
+          workspaceLabel: "a",
+          lastActivityAt: 100 - i,
+          status: "idle",
+        }),
+      );
+    }
+    sessions.push(
+      sess({
+        id: "unread-old",
+        workspacePath: "/a",
+        workspaceLabel: "a",
+        hasUnread: true,
+        status: "waiting",
+        lastActivityAt: 1,
+      }),
+    );
+    const groups = groupSessionsForUi(sessions);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].totalCount).toBe(6);
+    const ids = groups[0].sessions.map((s) => s.id);
+    expect(ids).toContain("unread-old");
+    expect(ids.length).toBeGreaterThanOrEqual(5);
+    expect(ids.length).toBeLessThanOrEqual(6);
+  });
+
+  it("formatStatusSummary skips zero counts", () => {
+    expect(formatStatusSummary({ waiting: 1, idle: 2 })).toContain("🟡1");
+    expect(formatStatusSummary({ waiting: 1, idle: 2 })).toContain("⚪2");
   });
 });
