@@ -23,31 +23,16 @@ export function sortAttentionSessions(sessions) {
   });
 }
 
-/** Temporary shim until Task 6 removes group wall usage from app.js */
-export function groupSessionsForUi(sessions) {
-  const list = sessions || [];
-  return [
-    {
-      key: "",
-      label: "",
-      sessions: sortAttentionSessions(list),
-      statusCounts: {},
-      totalCount: list.length,
-    },
-  ];
-}
-
-export function formatStatusSummary(statusCounts) {
-  const order = ["waiting", "error", "running", "subagent", "idle"];
-  const icons = {
-    waiting: "🟡",
-    error: "🔴",
-    running: "🟢",
-    subagent: "🔵",
-    idle: "⚪",
+export function attentionCardLines(s, now = Date.now()) {
+  const title = s.chatName || s.summary || s.id;
+  const ageBase =
+    s.status === "waiting" ? s.waitingSince ?? s.lastActivityAt : s.lastActivityAt;
+  const subtitle =
+    (s.live && s.liveHint) || s.summary || s.currentAction || "";
+  return {
+    title,
+    ageMs: Math.max(0, now - Number(ageBase || 0)),
+    subtitle,
+    workspaceLabel: s.workspaceLabel || "",
   };
-  return order
-    .filter((k) => (statusCounts[k] || 0) > 0)
-    .map((k) => `${icons[k]}${statusCounts[k]}`)
-    .join(" ");
 }

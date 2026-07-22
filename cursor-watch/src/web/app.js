@@ -1,8 +1,7 @@
-import { formatStatusSummary, groupSessionsForUi } from "./group-sessions.js";
+import { attentionCardLines, sortAttentionSessions } from "./group-sessions.js";
 import {
   formatActionLine,
   formatStatusSentence,
-  latestProgressText,
   pickReadableMessages,
 } from "./drawer-format.js";
 
@@ -73,67 +72,55 @@ function render(sessions) {
   countsEl.textContent = `🟢${counts.running} 🟡${counts.waiting} 🔵${counts.subagent} ⚪${counts.idle} 🔴${counts.error}`;
 
   listEl.innerHTML = "";
-  const groups = groupSessionsForUi(sessions);
-  for (const g of groups) {
-    const section = document.createElement("section");
-    section.className = "workspace-group";
-
-    const header = document.createElement("div");
-    header.className = "group-header";
-    const summary = formatStatusSummary(g.statusCounts);
-    header.textContent = summary
-      ? `${g.label} · 显示 ${g.sessions.length} / 组内 ${g.totalCount} · ${summary}`
-      : `${g.label} · 显示 ${g.sessions.length} / 组内 ${g.totalCount}`;
-    section.appendChild(header);
-
-    const body = document.createElement("div");
-    body.className = "group-sessions";
-    for (const s of g.sessions) {
-      const card = document.createElement("div");
-      card.className = `card ${s.status}`;
-      card.tabIndex = 0;
-      const ageBase =
-        s.status === "waiting" ? s.waitingSince ?? s.lastActivityAt : s.lastActivityAt;
-      const title = sessionTitle(s);
-      const banner = completionBanner(s);
-      const progress = latestProgressText(s);
-      const liveBadge = s.live ? `<div class="live-badge">LIVE</div>` : "";
-      const openBtn = s.workspacePath
-        ? `<button type="button" class="open-cursor" title="在 Cursor 中打开工程">↗</button>`
-        : "";
-      card.innerHTML = `
-        <div class="summary-row">
-          <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(title)} · ${formatDuration(Date.now() - ageBase)}</div>
-          ${openBtn}
-        </div>
-        ${liveBadge}
-        ${progress ? `<div class="action">${escapeHtml(progress)}</div>` : ""}
-        ${banner ? `<div class="completion">${escapeHtml(banner)}</div>` : ""}
-      `;
-      card.classList.toggle("is-live", Boolean(s.live));
-      const openMain = () => openDrawer(s);
-      card.addEventListener("click", (ev) => {
+  if (!sessions.length) {
+    listEl.innerHTML = `<p class="empty-state">暂无需要关注的会话</p>`;
+    return;
+  }
+  const ordered = sortAttentionSessions(sessions);
+  for (const s of ordered) {
+    const card = document.createElement("div");
+    card.className = `card attention ${s.status}`;
+    card.tabIndex = 0;
+    const lines = attentionCardLines(s);
+    const banner = completionBanner(s);
+    const openBtn = s.workspacePath
+      ? `<button type="button" class="open-cursor" title="在 Cursor 中打开工程">↗</button>`
+      : "";
+    const liveBit = s.live
+      ? `<span class="live-inline">LIVE</span> ${escapeHtml(s.liveHint || lines.subtitle)}`
+      : escapeHtml(lines.subtitle);
+    card.innerHTML = `
+      <div class="summary-row">
+        <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(lines.title)} · ${formatDuration(lines.ageMs)}</div>
+        ${openBtn}
+      </div>
+      <div class="card-sub">
+        <div class="action">${liveBit}</div>
+        <div class="workspace-tag">${escapeHtml(lines.workspaceLabel)}</div>
+      </div>
+      ${banner ? `<div class="completion">${escapeHtml(banner)}</div>` : ""}
+    `;
+    card.classList.toggle("is-live", Boolean(s.live));
+    const openMain = () => openDrawer(s);
+    card.addEventListener("click", (ev) => {
+      if (ev.target.closest(".open-cursor")) return;
+      openMain();
+    });
+    card.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
         if (ev.target.closest(".open-cursor")) return;
+        ev.preventDefault();
         openMain();
-      });
-      card.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter" || ev.key === " ") {
-          if (ev.target.closest(".open-cursor")) return;
-          ev.preventDefault();
-          openMain();
-        }
-      });
-      const ob = card.querySelector(".open-cursor");
-      if (ob) {
-        ob.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          void openInCursor(s.workspacePath);
-        });
       }
-      body.appendChild(card);
+    });
+    const ob = card.querySelector(".open-cursor");
+    if (ob) {
+      ob.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        void openInCursor(s.workspacePath);
+      });
     }
-    section.appendChild(body);
-    listEl.appendChild(section);
+    listEl.appendChild(card);
   }
 }
 

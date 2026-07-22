@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sortAttentionSessions, urgencyBucket } from "../src/web/group-sessions.js";
+import {
+  attentionCardLines,
+  sortAttentionSessions,
+  urgencyBucket,
+} from "../src/web/group-sessions.js";
 
 function s(partial) {
   return {
@@ -39,5 +43,23 @@ describe("sortAttentionSessions", () => {
       s({ id: "b", hasUnread: true, status: "waiting", composerUpdatedAt: 50, lastActivityAt: 1 }),
     ]);
     expect(out.map((x) => x.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("attentionCardLines", () => {
+  it("attentionCardLines prefers chatName and exposes workspaceLabel", () => {
+    const lines = attentionCardLines(
+      {
+        chatName: "T",
+        summary: "sum",
+        workspaceLabel: "idea/X",
+        status: "idle",
+        lastActivityAt: 1_000,
+      },
+      1_060_000,
+    );
+    expect(lines.title).toBe("T");
+    expect(lines.workspaceLabel).toBe("idea/X");
+    expect(lines.ageMs).toBe(1_059_000);
   });
 });
