@@ -31,4 +31,6 @@ export interface SessionState {
   live?: boolean;
   liveHint?: string;
   turnEnded?: boolean;
+  /** When turnEnded became true (live snapshot stoppedAt); used for retention. */
+  turnEndedAt?: number;
 }

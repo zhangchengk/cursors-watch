@@ -2,6 +2,9 @@ import os from "node:os";
 import path from "node:path";
 
 export const ACTIVE_WINDOW_MS = 60 * 60 * 1000;
+export const TURN_ENDED_KEEP_MS = 30 * 60 * 1000;
+export const IDLE_KEEP_MS = 15 * 60 * 1000;
+export const VISIBILITY_PRUNE_MS = 30_000;
 export const RUNNING_WINDOW_MS = 2 * 60 * 1000;
 /** Skip parsing transcripts older than this (mtime); waiting beyond this is dropped. */
 export const SCAN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
