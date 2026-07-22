@@ -21,7 +21,7 @@ export { readProjectShellFlags } from "./scanner.js";
 
 /** Clear live-derived fields so mergeSessionExtras re-applies from the snap. */
 function stripLiveFields(session: SessionState): SessionState {
-  const { live: _l, turnEnded: _t, liveHint: _h, ...rest } = session;
+  const { live: _l, turnEnded: _t, turnEndedAt: _ta, liveHint: _h, ...rest } = session;
   return rest;
 }
 

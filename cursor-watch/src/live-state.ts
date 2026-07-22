@@ -58,6 +58,9 @@ export function applyLiveToSession(
     status,
     live: flags.live,
     turnEnded: flags.turnEnded,
+    turnEndedAt: flags.turnEnded
+      ? (snap?.stoppedAt ?? session.turnEndedAt ?? session.lastActivityAt)
+      : undefined,
     liveHint: flags.liveHint ?? session.liveHint,
   };
 }

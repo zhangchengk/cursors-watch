@@ -144,4 +144,25 @@ describe("applyLiveToSession", () => {
     );
     expect(s.status).toBe("running");
   });
+
+  it("sets turnEndedAt from snapshot stoppedAt", () => {
+    const s = applyLiveToSession(
+      baseSession({ status: "running", hasUnread: false }),
+      snap({ lastEvent: "stop", stoppedAt: 1_000_050, lastLiveAt: 1_000_000 }),
+      1_000_100,
+    );
+    expect(s.turnEnded).toBe(true);
+    expect(s.turnEndedAt).toBe(1_000_050);
+    expect(s.status).toBe("idle");
+  });
+
+  it("clears turnEndedAt when not turnEnded", () => {
+    const s = applyLiveToSession(
+      baseSession({ turnEnded: true, turnEndedAt: 99, status: "idle" }),
+      snap({ lastLiveAt: 1_000_000, stoppedAt: null }),
+      1_000_100,
+    );
+    expect(s.turnEnded).toBe(false);
+    expect(s.turnEndedAt).toBeUndefined();
+  });
 });
