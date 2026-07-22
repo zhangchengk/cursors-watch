@@ -62,18 +62,7 @@ function hasReminder(s) {
 
 /** 0 正在运行 → 1 待查看 → 2 本轮结束/其它 */
 function cardBucket(s) {
-  if (
-    s.live ||
-    s.status === "running" ||
-    s.status === "subagent" ||
-    s.status === "error"
-  ) {
-    return 0;
-  }
-  if (s.hasUnread || s.status === "waiting") {
-    return 1;
-  }
-  return 2;
+  return urgencyBucket(s);
 }
 
 function cmpCard(a, b) {
