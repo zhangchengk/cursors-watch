@@ -30,6 +30,18 @@ export function remindersFile(home = os.homedir()): string {
   return path.join(stateDir(home), "reminders.json");
 }
 
+/** Exact markers for /loop sentinel shell commands (substring match). */
+export const LOOP_SENTINEL_MARKERS = ["AGENT_LOOP_TICK_", "AGENT_LOOP_WAKE_"] as const;
+
+export const LOOP_COMMAND_FINGERPRINT_MAX = 200;
+
+/** Env var name agents may set on sentinel commands for precise binding. */
+export const CURSOR_WATCH_CONVERSATION_ID_ENV = "CURSOR_WATCH_CONVERSATION_ID";
+
+export function loopLedgerFile(home = os.homedir()): string {
+  return path.join(stateDir(home), "loop-ledger.json");
+}
+
 export const LIVE_TTL_MS = 60 * 1000;
 
 export function liveDir(home = os.homedir()): string {
