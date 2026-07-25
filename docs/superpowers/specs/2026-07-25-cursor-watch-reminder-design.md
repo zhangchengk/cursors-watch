@@ -1,6 +1,6 @@
 # cursor-watch：Reminder 优先（完成提醒）设计
 
-状态：已评审共识  
+状态：已实现  
 日期：2026-07-25  
 范围：将产品主职从「注意力/态势」转为 **Reminder**；Turn end 触发系统通知 + 面板收件箱；识别 Active loop 以免 `/loop` 假结束  
 前置：`CONTEXT.md`、`docs/adr/0001-reminder-over-attention.md`  

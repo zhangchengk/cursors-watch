@@ -4,9 +4,9 @@
 
 ## What it is
 
-`cursor-watch` is a **local, read-only situational panel** for Cursor Agent: see in a browser which sessions are running and which are waiting on you.
+`cursor-watch` is a **Reminder-first**, local, read-only Cursor Agent panel: on **Turn end** it pings you with an OS notification and keeps an inbox item to ack — and you can still see which sessions are running or waiting.
 
-When you run agents across multiple projects, the panel switches between **Attention** and **By project**: Attention is an urgency-sorted multi-column queue; By project restores the workspace group wall. It also surfaces unread / “turn ended” signals. Optional hooks add a LIVE marquee and more accurate “running” status. From the panel you can **open the matching workspace folder** in Cursor on this Mac — it does **not** deep-link into a specific Agent/chat, and it does **not** modify, inject, or orchestrate sessions.
+Reminders need optional **hooks** (`hooks install`); without them there is no OS Reminder, only an install prompt. During an active `/loop`, hooks `stop` events are not treated as turn end (no false alarms). From the panel you can **open the matching workspace folder** in Cursor on this Mac — it does **not** deep-link into a specific Agent/chat, and it does **not** modify, inject, or orchestrate sessions.
 
 It is not a task hub, not remote monitoring, and not a replacement for Cursor’s sidebar. It only reads local Cursor data (see below). **macOS only** (opening the browser and the workspace relies on macOS `open` / `open -a Cursor`; other platforms are unsupported). The server binds to localhost and shows paths and message excerpts in the clear (no redaction) — do not expose the port to the network.
 
@@ -71,7 +71,7 @@ npx cursor-watch hooks uninstall
 
 The panel works without hooks: “running / waiting” then come mainly from transcripts and terminals, and may lag or miss updates.
 
-With hooks you get an extra LIVE snapshot stream (tool use / response / stop), a mini marquee (tool and action hints), and more sensitive “running” detection — still **not** millisecond telemetry; do not treat it as ground truth. Hook script failures do not break Cursor.
+With hooks you get an extra LIVE snapshot stream (tool use / response / stop), **Reminders** (OS notify + inbox), a mini marquee, and more sensitive “running” detection — still **not** millisecond telemetry; do not treat it as ground truth. Active `/loop` tick-gap `stop` events are suppressed so they do not false-alarm. Hook script failures do not break Cursor.
 
 ## Reading the panel
 
