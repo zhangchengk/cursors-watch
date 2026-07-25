@@ -35,6 +35,9 @@ export const LOOP_SENTINEL_MARKERS = ["AGENT_LOOP_TICK_", "AGENT_LOOP_WAKE_"] as
 
 export const LOOP_COMMAND_FINGERPRINT_MAX = 200;
 
+/** Unmarked fingerprint matches only count while ledger seenAt is within this window. */
+export const LOOP_ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 /** Env var name agents may set on sentinel commands for precise binding. */
 export const CURSOR_WATCH_CONVERSATION_ID_ENV = "CURSOR_WATCH_CONVERSATION_ID";
 
