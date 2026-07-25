@@ -24,6 +24,12 @@ export function stateDir(home = os.homedir()): string {
   return path.join(home, ".cursor-watch");
 }
 
+export const REMINDER_NOTIFY_ID_PREFIX = "cursor-watch-reminder-";
+
+export function remindersFile(home = os.homedir()): string {
+  return path.join(stateDir(home), "reminders.json");
+}
+
 export const LIVE_TTL_MS = 60 * 1000;
 
 export function liveDir(home = os.homedir()): string {
