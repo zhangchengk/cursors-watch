@@ -126,6 +126,47 @@ describe("createRefreshController", () => {
     controller.close();
   });
 
+  it("forwards onReminderChanged into applyLivePatch", () => {
+    const store = new SessionStore();
+    const caches = new ScanCaches(homeDir, {
+      loadHeaders: () => new Map(),
+      dbMtimeMs: () => 0,
+      buildIndex: () => new Map(),
+    });
+    const runFullScan = vi.fn();
+    const applyLivePatch = vi.fn(() => "upserted" as const);
+    const onReminderChanged = vi.fn();
+    const controller = createRefreshController({
+      projectsDir,
+      homeDir,
+      store,
+      caches,
+      runFullScan,
+      now: () => 1_700_000_000_000,
+      onReminderChanged,
+      incremental: {
+        applyLivePatch,
+        rescanParentSession: vi.fn(() => sessionStub("s1")),
+        rescanProjectShells: vi.fn(),
+      },
+    });
+    controller.start();
+    controller.notifyFullScanComplete();
+    runFullScan.mockClear();
+
+    controller.onFsEvent("change", path.join(liveRoot, "conv-hub.json"));
+    vi.advanceTimersByTime(INCREMENTAL_DEBOUNCE_MS);
+
+    expect(applyLivePatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conv-hub",
+        onReminderChanged,
+      }),
+    );
+
+    controller.close();
+  });
+
   it("routes transcript_main to rescanParentSession and upserts", () => {
     const { controller, rescanParentSession, store, runFullScan } = setup();
     controller.start();

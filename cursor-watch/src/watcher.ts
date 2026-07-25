@@ -21,10 +21,16 @@ const workerPath = fileURLToPath(new URL("./scan-worker.ts", import.meta.url));
 /** Depth from agent-transcripts/ covers sess/sess.jsonl and sess/subagents/*.jsonl. */
 const PROJECT_WATCH_DEPTH = 4;
 
+export type StartWatcherOptions = {
+  /** After pipeline upsert — typically ReminderHub.notifyChanged for WS. */
+  onReminderChanged?: () => void;
+};
+
 export function startWatcher(
   projectsDir: string,
   homeDir: string,
   store: SessionStore,
+  opts?: StartWatcherOptions,
 ): { close: () => Promise<void> } {
   let child: ChildProcess | null = null;
   const caches = new ScanCaches(homeDir);
@@ -104,6 +110,7 @@ export function startWatcher(
     store,
     caches,
     runFullScan,
+    onReminderChanged: opts?.onReminderChanged,
   });
 
   const livePath = liveDir(homeDir);

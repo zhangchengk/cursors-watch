@@ -171,4 +171,54 @@ describe("onEffectiveTurnEnd", () => {
     });
     expect(listPendingReminders(home)[0]?.summary).toBe("from session");
   });
+
+  it("invokes onReminderChanged after upsert, not when suppressed", () => {
+    const home = tempHome();
+    const notify = vi.fn();
+    const onReminderChanged = vi.fn();
+
+    const suppressed = onEffectiveTurnEnd({
+      homeDir: home,
+      conversationId: "c4",
+      session: session(),
+      notify,
+      isActiveLoop: () => true,
+      onReminderChanged,
+      now: 7_000,
+    });
+    expect(suppressed).toBe("suppressed");
+    expect(onReminderChanged).not.toHaveBeenCalled();
+
+    const upserted = onEffectiveTurnEnd({
+      homeDir: home,
+      conversationId: "c4",
+      session: session(),
+      notify,
+      isActiveLoop: () => false,
+      onReminderChanged,
+      now: 8_000,
+    });
+    expect(upserted).toBe("upserted");
+    expect(onReminderChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onReminderChanged after upsert even when notify throws", () => {
+    const home = tempHome();
+    const onReminderChanged = vi.fn();
+    expect(() =>
+      onEffectiveTurnEnd({
+        homeDir: home,
+        conversationId: "c5",
+        session: session(),
+        notify: () => {
+          throw new Error("os notify boom");
+        },
+        isActiveLoop: () => false,
+        onReminderChanged,
+        now: 9_000,
+      }),
+    ).toThrow("os notify boom");
+    expect(onReminderChanged).toHaveBeenCalledTimes(1);
+    expect(listPendingReminders(home)).toHaveLength(1);
+  });
 });

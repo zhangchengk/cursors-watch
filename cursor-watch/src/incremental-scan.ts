@@ -144,6 +144,7 @@ export function applyLivePatch(opts: {
   /** Test/daemon injectable — forwarded to onEffectiveTurnEnd. */
   isActiveLoop?: IsActiveLoopFn;
   notify?: NotifyReminderFn;
+  onReminderChanged?: () => void;
 }): "upserted" | "missing" | "removed" {
   const now = opts.now ?? Date.now();
   const existing = opts.store
@@ -205,6 +206,7 @@ export function applyLivePatch(opts: {
         now,
         isActiveLoop: opts.isActiveLoop,
         notify: opts.notify,
+        onReminderChanged: opts.onReminderChanged,
       });
     } catch (err) {
       console.error(

@@ -263,6 +263,42 @@ describe("buildServer", () => {
 
     ws.close();
   });
+
+  it("WS receives reminders after pipeline upsert via hub.notifyChanged", async () => {
+    const port = listenPort(app);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const inbox = collectWs(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve());
+      ws.addEventListener("error", (e) => reject(e));
+    });
+
+    await inbox.waitFor((m) => m.type === "reminders");
+
+    const nextReminders = inbox.waitFor(
+      (m) =>
+        m.type === "reminders" &&
+        (m.payload as Array<{ conversationId: string }>).some(
+          (r) => r.conversationId === "conv-pipe",
+        ),
+    );
+
+    // Simulate production path: pipeline file upsert + shared hub notifyChanged.
+    upsertPendingReminder(home, {
+      conversationId: "conv-pipe",
+      turnedEndedAt: 4000,
+      summary: "from pipeline",
+    });
+    hub.notifyChanged();
+
+    const msg = await nextReminders;
+    const pending = msg.payload as Array<{ conversationId: string; summary: string }>;
+    expect(pending.some((r) => r.conversationId === "conv-pipe" && r.summary === "from pipeline")).toBe(
+      true,
+    );
+
+    ws.close();
+  });
 });
 
 describe("ReminderHub", () => {

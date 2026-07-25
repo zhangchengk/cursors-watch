@@ -325,6 +325,7 @@ describe("applyLivePatch", () => {
     );
 
     const notify = vi.fn();
+    const onReminderChanged = vi.fn();
     const result = applyLivePatch({
       conversationId: fx.parentId,
       store,
@@ -334,6 +335,7 @@ describe("applyLivePatch", () => {
       now: fx.now,
       isActiveLoop: () => false,
       notify,
+      onReminderChanged,
     });
 
     expect(result).toBe("upserted");
@@ -347,6 +349,7 @@ describe("applyLivePatch", () => {
       turnedEndedAt: fx.now,
     });
     expect(notify).toHaveBeenCalledTimes(1);
+    expect(onReminderChanged).toHaveBeenCalledTimes(1);
     const s = store.getSessions().find((x) => x.id === fx.parentId);
     expect(s!.turnEnded).toBe(true);
   });
@@ -378,6 +381,7 @@ describe("applyLivePatch", () => {
     );
 
     const notify = vi.fn();
+    const onReminderChanged = vi.fn();
     const result = applyLivePatch({
       conversationId: fx.parentId,
       store,
@@ -387,11 +391,13 @@ describe("applyLivePatch", () => {
       now: fx.now,
       isActiveLoop: () => true,
       notify,
+      onReminderChanged,
     });
 
     expect(result).toBe("upserted");
     expect(listPendingReminders(fx.home)).toHaveLength(0);
     expect(notify).not.toHaveBeenCalled();
+    expect(onReminderChanged).not.toHaveBeenCalled();
     expect(store.getSessions().find((x) => x.id === fx.parentId)!.turnEnded).toBe(
       true,
     );

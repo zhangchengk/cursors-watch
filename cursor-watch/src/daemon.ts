@@ -8,6 +8,7 @@ import {
   pidFile,
   stateDir,
 } from "./constants.js";
+import { ReminderHub } from "./reminders/hub.js";
 import { buildServer } from "./server.js";
 import { SessionStore } from "./store.js";
 import { startWatcher } from "./watcher.js";
@@ -51,14 +52,18 @@ export async function runDaemon(): Promise<void> {
   fs.writeFileSync(pf, String(process.pid), "utf8");
 
   const store = new SessionStore();
-  const app = await buildServer(store);
+  const homeDir = os.homedir();
+  const reminderHub = new ReminderHub(homeDir);
+  const app = await buildServer(store, { homeDir, reminderHub });
   const host = listenHost();
   const port = listenPort();
   // Bind HTTP before startWatcher so the initial scan cannot block listen
   // (setImmediate still runs across await buildServer if watcher starts first).
   await app.listen({ host, port });
   console.log(`[cursor-watch] listening on http://${host}:${port}`);
-  const watcher = startWatcher(cursorProjectsDir(), os.homedir(), store);
+  const watcher = startWatcher(cursorProjectsDir(), homeDir, store, {
+    onReminderChanged: () => reminderHub.notifyChanged(),
+  });
 
   const shutdown = async () => {
     await watcher.close();

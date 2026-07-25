@@ -26,6 +26,8 @@ export type OnEffectiveTurnEndOpts = {
   notify?: NotifyReminderFn;
   isActiveLoop?: IsActiveLoopFn;
   now?: number;
+  /** After successful pending upsert (e.g. ReminderHub.notifyChanged for WS). */
+  onReminderChanged?: () => void;
 };
 
 function defaultPanelUrl(): string {
@@ -73,6 +75,9 @@ export function onEffectiveTurnEnd(
     turnedEndedAt: now,
     summary: reminderSummary(liveHint, session),
   });
+
+  // Fire after upsert so WS clients see the new pending even if OS notify throws.
+  opts.onReminderChanged?.();
 
   const prefs = loadWatchPrefs(homeDir);
   notify({

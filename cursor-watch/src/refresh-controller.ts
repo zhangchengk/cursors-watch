@@ -33,6 +33,8 @@ export function createRefreshController(opts: {
   runFullScan: () => void;
   now?: () => number;
   incremental?: Partial<IncrementalHandlers>;
+  /** Forwarded to applyLivePatch → onEffectiveTurnEnd (WS reminders). */
+  onReminderChanged?: () => void;
 }): {
   onFsEvent: (event: string, filePath: string) => void;
   onComposerDbEvent: () => void;
@@ -139,6 +141,7 @@ export function createRefreshController(opts: {
           homeDir: opts.homeDir,
           projectsDir: opts.projectsDir,
           now,
+          onReminderChanged: opts.onReminderChanged,
         });
         return;
       }
