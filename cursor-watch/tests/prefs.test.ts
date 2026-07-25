@@ -1,77 +1,81 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { prefsFile, stateDir } from "../src/constants.js";
 import {
-  clampAttentionColumns,
-  effectiveAttentionColumns,
-  loadPrefs,
-  saveAttentionColumns,
-  saveViewMode,
-} from "../src/web/prefs.js";
+  DEFAULT_WATCH_PREFS,
+  loadWatchPrefs,
+  saveWatchPrefs,
+} from "../src/prefs.js";
 
-function memStorage(init: Record<string, string> = {}) {
-  const data = { ...init };
-  return {
-    getItem: (k: string) => (k in data ? data[k] : null),
-    setItem: (k: string, v: string) => {
-      data[k] = String(v);
-    },
-    _data: data,
-  };
+const homes: string[] = [];
+
+afterEach(() => {
+  for (const h of homes.splice(0)) fs.rmSync(h, { recursive: true, force: true });
+});
+
+function tempHome(): string {
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), "cw-prefs-"));
+  homes.push(h);
+  return h;
 }
 
-describe("clampAttentionColumns", () => {
-  it("clamps to 1..4 and defaults junk to 2", () => {
-    expect(clampAttentionColumns(1)).toBe(1);
-    expect(clampAttentionColumns(4)).toBe(4);
-    expect(clampAttentionColumns(9)).toBe(2);
-    expect(clampAttentionColumns("3")).toBe(3);
-    expect(clampAttentionColumns("x")).toBe(2);
+describe("prefsFile", () => {
+  it("is under stateDir", () => {
+    const home = "/tmp/fake-home";
+    expect(prefsFile(home)).toBe(path.join(stateDir(home), "prefs.json"));
+    expect(prefsFile(home)).toBe(
+      path.join(home, ".cursor-watch", "prefs.json"),
+    );
   });
 });
 
-describe("loadPrefs", () => {
-  it("defaults when empty", () => {
-    expect(loadPrefs(memStorage())).toEqual({
-      viewMode: "attention",
-      attentionColumns: 2,
-    });
-  });
-
-  it("reads valid keys", () => {
-    expect(
-      loadPrefs(
-        memStorage({
-          "cursor-watch.viewMode": "workspace",
-          "cursor-watch.attentionColumns": "3",
-        }),
-      ),
-    ).toEqual({ viewMode: "workspace", attentionColumns: 3 });
-  });
-
-  it("rejects illegal mode/columns", () => {
-    expect(
-      loadPrefs(
-        memStorage({
-          "cursor-watch.viewMode": "nope",
-          "cursor-watch.attentionColumns": "9",
-        }),
-      ),
-    ).toEqual({ viewMode: "attention", attentionColumns: 2 });
+describe("DEFAULT_WATCH_PREFS", () => {
+  it("defaults notificationSound to false (silent)", () => {
+    expect(DEFAULT_WATCH_PREFS).toEqual({ notificationSound: false });
   });
 });
 
-describe("save*", () => {
-  it("writes keys", () => {
-    const s = memStorage();
-    saveViewMode("workspace", s);
-    saveAttentionColumns(4, s);
-    expect(s._data["cursor-watch.viewMode"]).toBe("workspace");
-    expect(s._data["cursor-watch.attentionColumns"]).toBe("4");
+describe("watch prefs store", () => {
+  it("loadWatchPrefs returns defaults when file missing", () => {
+    const home = tempHome();
+    expect(loadWatchPrefs(home)).toEqual({ notificationSound: false });
   });
-});
 
-describe("effectiveAttentionColumns", () => {
-  it("forces 1 under 720px without changing stored meaning", () => {
-    expect(effectiveAttentionColumns(3, 719)).toBe(1);
-    expect(effectiveAttentionColumns(3, 720)).toBe(3);
+  it("saveWatchPrefs then loadWatchPrefs round-trips", () => {
+    const home = tempHome();
+    saveWatchPrefs(home, { notificationSound: true });
+    expect(loadWatchPrefs(home)).toEqual({ notificationSound: true });
+
+    saveWatchPrefs(home, { notificationSound: false });
+    expect(loadWatchPrefs(home)).toEqual({ notificationSound: false });
+  });
+
+  it("persists under prefsFile path", () => {
+    const home = tempHome();
+    saveWatchPrefs(home, { notificationSound: true });
+    const raw = JSON.parse(fs.readFileSync(prefsFile(home), "utf8")) as {
+      notificationSound: boolean;
+    };
+    expect(raw.notificationSound).toBe(true);
+  });
+
+  it("returns defaults on corrupt JSON", () => {
+    const home = tempHome();
+    fs.mkdirSync(stateDir(home), { recursive: true });
+    fs.writeFileSync(prefsFile(home), "{not-json", "utf8");
+    expect(loadWatchPrefs(home)).toEqual(DEFAULT_WATCH_PREFS);
+  });
+
+  it("returns defaults when notificationSound is not boolean", () => {
+    const home = tempHome();
+    fs.mkdirSync(stateDir(home), { recursive: true });
+    fs.writeFileSync(
+      prefsFile(home),
+      `${JSON.stringify({ notificationSound: "yes" })}\n`,
+      "utf8",
+    );
+    expect(loadWatchPrefs(home)).toEqual(DEFAULT_WATCH_PREFS);
   });
 });

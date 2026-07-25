@@ -30,6 +30,10 @@ export function remindersFile(home = os.homedir()): string {
   return path.join(stateDir(home), "reminders.json");
 }
 
+export function prefsFile(home = os.homedir()): string {
+  return path.join(stateDir(home), "prefs.json");
+}
+
 /** Exact markers for /loop sentinel shell commands (substring match). */
 export const LOOP_SENTINEL_MARKERS = ["AGENT_LOOP_TICK_", "AGENT_LOOP_WAKE_"] as const;
 
