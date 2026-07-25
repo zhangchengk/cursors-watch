@@ -189,21 +189,29 @@ export function applyLivePatch(opts: {
   opts.store.upsert(merged);
 
   if (becomingTurnEnded) {
-    onEffectiveTurnEnd({
-      homeDir: opts.homeDir,
-      conversationId: opts.conversationId,
-      session: {
-        projectKey: merged.projectKey,
-        workspacePath: merged.workspacePath,
-        workspaceLabel: merged.workspaceLabel,
-        chatName: merged.chatName,
-        summary: merged.summary,
-      },
-      liveHint: merged.liveHint ?? snap?.liveHint,
-      now,
-      isActiveLoop: opts.isActiveLoop,
-      notify: opts.notify,
-    });
+    // Side-effect only: swallow so reminder failures cannot force a full scan.
+    try {
+      onEffectiveTurnEnd({
+        homeDir: opts.homeDir,
+        conversationId: opts.conversationId,
+        session: {
+          projectKey: merged.projectKey,
+          workspacePath: merged.workspacePath,
+          workspaceLabel: merged.workspaceLabel,
+          chatName: merged.chatName,
+          summary: merged.summary,
+        },
+        liveHint: merged.liveHint ?? snap?.liveHint,
+        now,
+        isActiveLoop: opts.isActiveLoop,
+        notify: opts.notify,
+      });
+    } catch (err) {
+      console.error(
+        "[cursor-watch] onEffectiveTurnEnd failed (ignored)",
+        err,
+      );
+    }
   }
 
   return "upserted";

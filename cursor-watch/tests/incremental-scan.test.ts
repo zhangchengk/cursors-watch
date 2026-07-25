@@ -397,6 +397,57 @@ describe("applyLivePatch", () => {
     );
   });
 
+  it("reminder side-effect throw still returns upserted (does not break main path)", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    store.upsert(
+      baseSession(fx, {
+        status: "running",
+        live: true,
+        turnEnded: false,
+        liveHint: "Shell: work",
+      }),
+    );
+
+    const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
+    fs.mkdirSync(path.dirname(livePath), { recursive: true });
+    fs.writeFileSync(
+      livePath,
+      JSON.stringify({
+        conversationId: fx.parentId,
+        lastEvent: "stop",
+        lastLiveAt: fx.now - 1_000,
+        stoppedAt: fx.now,
+        liveHint: "Shell: work",
+        updatedAt: fx.now,
+      }),
+    );
+
+    const notify = vi.fn(() => {
+      throw new Error("notify boom");
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    let result: ReturnType<typeof applyLivePatch> | undefined;
+    expect(() => {
+      result = applyLivePatch({
+        conversationId: fx.parentId,
+        store,
+        caches: fx.caches,
+        homeDir: fx.home,
+        projectsDir: fx.projectsDir,
+        now: fx.now,
+        isActiveLoop: () => false,
+        notify,
+      });
+    }).not.toThrow();
+    expect(result).toBe("upserted");
+    expect(store.getSessions().find((x) => x.id === fx.parentId)!.turnEnded).toBe(
+      true,
+    );
+    errSpy.mockRestore();
+  });
+
   it("does not re-fire reminder when session already turnEnded", () => {
     const fx = makeLayout();
     const store = new SessionStore();
