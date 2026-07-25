@@ -9,6 +9,10 @@ import {
   stateDir,
 } from "./constants.js";
 import { ReminderHub } from "./reminders/hub.js";
+import {
+  startNotifyWorker,
+  stopNotifyWorker,
+} from "./reminders/notify.js";
 import { buildServer } from "./server.js";
 import { SessionStore } from "./store.js";
 import { startWatcher } from "./watcher.js";
@@ -48,6 +52,8 @@ function installProcessGuards(): void {
 export async function runDaemon(): Promise<void> {
   fs.mkdirSync(stateDir(), { recursive: true });
   installProcessGuards();
+  // Start notify sidecar before chokidar so it keeps a clean FD table.
+  startNotifyWorker();
   const pf = pidFile();
   fs.writeFileSync(pf, String(process.pid), "utf8");
 
@@ -66,6 +72,7 @@ export async function runDaemon(): Promise<void> {
   });
 
   const shutdown = async () => {
+    stopNotifyWorker();
     await watcher.close();
     await app.close();
     try {
