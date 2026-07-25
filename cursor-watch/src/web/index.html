@@ -22,12 +22,28 @@
           </div>
         </div>
         <div id="counts" class="counts"></div>
+        <label class="sound-toggle" title="通知声音（默认静音）">
+          <input type="checkbox" id="soundToggle" />
+          <span>声音</span>
+        </label>
         <button type="button" id="fullscreenBtn" class="icon-btn" aria-pressed="false" title="全屏 (F)">
           全屏
         </button>
       </div>
     </header>
-    <div id="list"></div>
+    <section id="inbox" aria-label="待确认 Reminder">
+      <header class="inbox-header">
+        <h2>待确认 Reminder</h2>
+        <span id="inboxCount" class="inbox-count"></span>
+      </header>
+      <div id="inboxBody" class="inbox-body"></div>
+    </section>
+    <section id="sessionsSection" aria-label="运行中与最近">
+      <header class="sessions-header">
+        <h2>运行中 / 最近</h2>
+      </header>
+      <div id="list"></div>
+    </section>
     <aside id="drawer" hidden></aside>
     <div id="toast" class="toast" hidden role="status"></div>
     <script src="/app.js" type="module"></script>

@@ -18,15 +18,31 @@ import {
   formatStatusSentence,
   pickReadableMessages,
 } from "./drawer-format.js";
+import {
+  formatReminderEndedAt,
+  inboxViewModel,
+  parseDeepLinkConversationId,
+  reminderAckPath,
+  reminderDisplayMeta,
+  reminderDisplayTitle,
+} from "./inbox.js";
 
 const listEl = document.getElementById("list");
 const countsEl = document.getElementById("counts");
 const drawerEl = document.getElementById("drawer");
 const toastEl = document.getElementById("toast");
+const inboxBodyEl = document.getElementById("inboxBody");
+const inboxCountEl = document.getElementById("inboxCount");
+const soundToggleEl = document.getElementById("soundToggle");
 
 let prefs = loadPrefs();
 let latestSessions = [];
+let latestReminders = [];
+let hooksInstalled = true;
+let selectedConversationId = null;
+let notificationSound = false;
 let resizeTimer = null;
+let deepLinkHandled = false;
 
 let toastTimer = null;
 function showToast(message) {
@@ -207,6 +223,163 @@ function render(sessions) {
   syncChrome();
 }
 
+function renderInbox(reminders) {
+  latestReminders = Array.isArray(reminders) ? reminders : [];
+  if (!inboxBodyEl) return;
+
+  const model = inboxViewModel({
+    reminders: latestReminders,
+    hooksInstalled,
+  });
+
+  if (inboxCountEl) {
+    inboxCountEl.textContent =
+      model.mode === "list" ? `${model.reminders.length}` : model.mode === "hooks-cta" ? "未安装" : "";
+  }
+
+  inboxBodyEl.innerHTML = "";
+
+  if (model.mode === "hooks-cta") {
+    const cta = document.createElement("div");
+    cta.className = "inbox-cta";
+    cta.innerHTML = `<div>${escapeHtml(model.emptyHint || "")}</div><code>${escapeHtml(
+      model.hooksCommand || "cursor-watch hooks install",
+    )}</code>`;
+    inboxBodyEl.appendChild(cta);
+    return;
+  }
+
+  if (model.mode === "empty") {
+    const empty = document.createElement("div");
+    empty.className = "inbox-empty";
+    empty.textContent = model.emptyHint || "暂无待确认 Reminder";
+    inboxBodyEl.appendChild(empty);
+    return;
+  }
+
+  for (const r of model.reminders) {
+    inboxBodyEl.appendChild(mountInboxCard(r));
+  }
+}
+
+function mountInboxCard(r) {
+  const card = document.createElement("div");
+  card.className = "inbox-card";
+  card.dataset.conversationId = r.conversationId;
+  if (selectedConversationId === r.conversationId) card.classList.add("is-selected");
+
+  const title = reminderDisplayTitle(r);
+  const meta = reminderDisplayMeta(r);
+  const ended = formatReminderEndedAt(r.turnedEndedAt);
+
+  const main = document.createElement("div");
+  main.className = "inbox-card-main";
+  main.tabIndex = 0;
+  main.setAttribute("role", "button");
+  main.innerHTML = `
+    <p class="title">${escapeHtml(title)}</p>
+    ${meta ? `<p class="meta">${escapeHtml(meta)}</p>` : ""}
+    <p class="ended">${escapeHtml(ended)}</p>
+  `;
+  const open = () => selectConversation(r.conversationId);
+  main.addEventListener("click", open);
+  main.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      open();
+    }
+  });
+
+  const ackBtn = document.createElement("button");
+  ackBtn.type = "button";
+  ackBtn.className = "inbox-ack";
+  ackBtn.textContent = "确认";
+  ackBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    void ackReminder(r.conversationId);
+  });
+
+  card.appendChild(main);
+  card.appendChild(ackBtn);
+  return card;
+}
+
+function findSession(conversationId) {
+  return latestSessions.find((s) => s.id === conversationId) || null;
+}
+
+function selectConversation(conversationId) {
+  selectedConversationId = conversationId || null;
+  renderInbox(latestReminders);
+  const session = findSession(conversationId);
+  if (session) openDrawer(session);
+}
+
+async function ackReminder(conversationId) {
+  if (!conversationId) return;
+  try {
+    const res = await fetch(reminderAckPath(conversationId), { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      showToast(data.error || `确认失败 (${res.status})`);
+      return;
+    }
+    latestReminders = latestReminders.filter((r) => r.conversationId !== conversationId);
+    if (selectedConversationId === conversationId) selectedConversationId = null;
+    renderInbox(latestReminders);
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "确认失败");
+  }
+}
+
+async function handleDeepLink() {
+  if (deepLinkHandled) return;
+  const id = parseDeepLinkConversationId(location.search);
+  if (!id) return;
+  deepLinkHandled = true;
+  selectConversation(id);
+  await ackReminder(id);
+  try {
+    const url = new URL(location.href);
+    url.searchParams.delete("conversationId");
+    history.replaceState({}, "", url.pathname + url.search + url.hash);
+  } catch {
+    /* ignore */
+  }
+}
+
+function syncSoundToggle() {
+  if (soundToggleEl) soundToggleEl.checked = Boolean(notificationSound);
+}
+
+function bindSoundToggle() {
+  if (!soundToggleEl) return;
+  soundToggleEl.addEventListener("change", () => {
+    void putNotificationSound(Boolean(soundToggleEl.checked));
+  });
+}
+
+async function putNotificationSound(enabled) {
+  try {
+    const res = await fetch("/api/prefs", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ notificationSound: enabled }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || `保存失败 (${res.status})`);
+      syncSoundToggle();
+      return;
+    }
+    notificationSound = Boolean(data.notificationSound);
+    syncSoundToggle();
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "保存失败");
+    syncSoundToggle();
+  }
+}
+
 function bindViewControls() {
   const modeAttention = document.getElementById("modeAttention");
   const modeWorkspace = document.getElementById("modeWorkspace");
@@ -367,18 +540,50 @@ async function fetchSessions() {
   render(await res.json());
 }
 
+async function fetchReminders() {
+  const res = await fetch("/api/reminders");
+  renderInbox(await res.json());
+}
+
+async function fetchHooksStatus() {
+  try {
+    const res = await fetch("/api/hooks-status");
+    const data = await res.json();
+    hooksInstalled = Boolean(data.installed);
+  } catch {
+    hooksInstalled = true;
+  }
+  renderInbox(latestReminders);
+}
+
+async function fetchDaemonPrefs() {
+  try {
+    const res = await fetch("/api/prefs");
+    const data = await res.json();
+    notificationSound = Boolean(data.notificationSound);
+  } catch {
+    notificationSound = false;
+  }
+  syncSoundToggle();
+}
+
 function connectWs() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
-    if (msg.type === "sessions") render(msg.payload);
+    if (msg.type === "sessions") {
+      render(msg.payload);
+    } else if (msg.type === "reminders") {
+      renderInbox(msg.payload);
+    }
   };
   ws.onclose = () => {
     // Daemon restarts drop the socket; without reconnect the UI freezes on the
     // last frame even while /api/sessions stays fresh.
     setTimeout(() => {
       void fetchSessions().catch(() => {});
+      void fetchReminders().catch(() => {});
       connectWs();
     }, 1000);
   };
@@ -387,8 +592,10 @@ function connectWs() {
 async function boot() {
   bindFullscreen();
   bindViewControls();
+  bindSoundToggle();
   syncChrome();
-  await fetchSessions();
+  await Promise.all([fetchSessions(), fetchHooksStatus(), fetchDaemonPrefs(), fetchReminders()]);
+  await handleDeepLink();
   connectWs();
 }
 
