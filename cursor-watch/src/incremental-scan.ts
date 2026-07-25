@@ -14,6 +14,11 @@ import {
 import type { ScanCaches } from "./scan-caches.js";
 import { mergeSessionExtras, type LiveSnapshot } from "./live-state.js";
 import { parseLiveSnapshot } from "./live-store.js";
+import {
+  onEffectiveTurnEnd,
+  type IsActiveLoopFn,
+  type NotifyReminderFn,
+} from "./reminders/pipeline.js";
 import type { SessionStore } from "./store.js";
 import type { SessionState } from "./types.js";
 
@@ -136,6 +141,9 @@ export function applyLivePatch(opts: {
   homeDir: string;
   projectsDir: string;
   now?: number;
+  /** Test/daemon injectable — forwarded to onEffectiveTurnEnd. */
+  isActiveLoop?: IsActiveLoopFn;
+  notify?: NotifyReminderFn;
 }): "upserted" | "missing" | "removed" {
   const now = opts.now ?? Date.now();
   const existing = opts.store
@@ -143,7 +151,11 @@ export function applyLivePatch(opts: {
     .find((s) => s.id === opts.conversationId);
   if (!existing) return "missing";
 
+  const wasTurnEnded = existing.turnEnded === true;
   const snap = readLiveSnap(opts.homeDir, opts.conversationId);
+  const becomingTurnEnded =
+    !wasTurnEnded && snap != null && snap.stoppedAt != null;
+
   let merged = mergeSessionExtras(
     stripLiveFields(existing),
     opts.caches.getHeader(opts.conversationId),
@@ -175,6 +187,25 @@ export function applyLivePatch(opts: {
   }
 
   opts.store.upsert(merged);
+
+  if (becomingTurnEnded) {
+    onEffectiveTurnEnd({
+      homeDir: opts.homeDir,
+      conversationId: opts.conversationId,
+      session: {
+        projectKey: merged.projectKey,
+        workspacePath: merged.workspacePath,
+        workspaceLabel: merged.workspaceLabel,
+        chatName: merged.chatName,
+        summary: merged.summary,
+      },
+      liveHint: merged.liveHint ?? snap?.liveHint,
+      now,
+      isActiveLoop: opts.isActiveLoop,
+      notify: opts.notify,
+    });
+  }
+
   return "upserted";
 }
 

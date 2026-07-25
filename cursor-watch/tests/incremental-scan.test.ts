@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { liveDir } from "../src/constants.js";
 import {
   applyLivePatch,
@@ -9,6 +9,7 @@ import {
   rescanProjectShells,
   syncComposerHeaders,
 } from "../src/incremental-scan.js";
+import { listPendingReminders } from "../src/reminders/store.js";
 import { ScanCaches } from "../src/scan-caches.js";
 import { SessionStore } from "../src/store.js";
 import type { SessionState } from "../src/types.js";
@@ -293,6 +294,149 @@ describe("applyLivePatch", () => {
     expect(s!.live).toBe(false);
     expect(s!.status).not.toBe("running");
     expect(["idle", "waiting"]).toContain(s!.status);
+  });
+
+  it("stop without active loop upserts pending reminder (side effect; still upserted)", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    store.upsert(
+      baseSession(fx, {
+        status: "running",
+        live: true,
+        turnEnded: false,
+        liveHint: "Shell: work",
+        chatName: "Task chat",
+        summary: "parent done",
+      }),
+    );
+
+    const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
+    fs.mkdirSync(path.dirname(livePath), { recursive: true });
+    fs.writeFileSync(
+      livePath,
+      JSON.stringify({
+        conversationId: fx.parentId,
+        lastEvent: "stop",
+        lastLiveAt: fx.now - 1_000,
+        stoppedAt: fx.now,
+        liveHint: "Shell: work",
+        updatedAt: fx.now,
+      }),
+    );
+
+    const notify = vi.fn();
+    const result = applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now,
+      isActiveLoop: () => false,
+      notify,
+    });
+
+    expect(result).toBe("upserted");
+    const pending = listPendingReminders(fx.home);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      conversationId: fx.parentId,
+      status: "pending",
+      summary: "Shell: work",
+      chatName: "Task chat",
+      turnedEndedAt: fx.now,
+    });
+    expect(notify).toHaveBeenCalledTimes(1);
+    const s = store.getSessions().find((x) => x.id === fx.parentId);
+    expect(s!.turnEnded).toBe(true);
+  });
+
+  it("stop with fake active loop does not create reminder", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    store.upsert(
+      baseSession(fx, {
+        status: "running",
+        live: true,
+        turnEnded: false,
+        liveHint: "Shell: loop",
+      }),
+    );
+
+    const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
+    fs.mkdirSync(path.dirname(livePath), { recursive: true });
+    fs.writeFileSync(
+      livePath,
+      JSON.stringify({
+        conversationId: fx.parentId,
+        lastEvent: "stop",
+        lastLiveAt: fx.now - 1_000,
+        stoppedAt: fx.now,
+        liveHint: "Shell: loop",
+        updatedAt: fx.now,
+      }),
+    );
+
+    const notify = vi.fn();
+    const result = applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now,
+      isActiveLoop: () => true,
+      notify,
+    });
+
+    expect(result).toBe("upserted");
+    expect(listPendingReminders(fx.home)).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
+    expect(store.getSessions().find((x) => x.id === fx.parentId)!.turnEnded).toBe(
+      true,
+    );
+  });
+
+  it("does not re-fire reminder when session already turnEnded", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    store.upsert(
+      baseSession(fx, {
+        status: "idle",
+        live: false,
+        turnEnded: true,
+        turnEndedAt: fx.now - 10_000,
+        liveHint: "already ended",
+      }),
+    );
+
+    const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
+    fs.mkdirSync(path.dirname(livePath), { recursive: true });
+    fs.writeFileSync(
+      livePath,
+      JSON.stringify({
+        conversationId: fx.parentId,
+        lastEvent: "stop",
+        lastLiveAt: fx.now - 10_000,
+        stoppedAt: fx.now - 10_000,
+        liveHint: "already ended",
+        updatedAt: fx.now,
+      }),
+    );
+
+    const notify = vi.fn();
+    applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now,
+      isActiveLoop: () => false,
+      notify,
+    });
+    expect(listPendingReminders(fx.home)).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
   });
 });
 
