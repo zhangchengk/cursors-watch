@@ -19,12 +19,15 @@ import {
   pickReadableMessages,
 } from "./drawer-format.js";
 import {
+  fetchRemindersPayload,
   formatReminderEndedAt,
+  hrefWithoutDeepLinkConversationId,
   inboxViewModel,
   parseDeepLinkConversationId,
   reminderAckPath,
   reminderDisplayMeta,
   reminderDisplayTitle,
+  shouldClearDeepLinkQuery,
 } from "./inbox.js";
 
 const listEl = document.getElementById("list");
@@ -316,19 +319,21 @@ function selectConversation(conversationId) {
 }
 
 async function ackReminder(conversationId) {
-  if (!conversationId) return;
+  if (!conversationId) return false;
   try {
     const res = await fetch(reminderAckPath(conversationId), { method: "POST" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
       showToast(data.error || `确认失败 (${res.status})`);
-      return;
+      return false;
     }
     latestReminders = latestReminders.filter((r) => r.conversationId !== conversationId);
     if (selectedConversationId === conversationId) selectedConversationId = null;
     renderInbox(latestReminders);
+    return true;
   } catch (err) {
     showToast(err instanceof Error ? err.message : "确认失败");
+    return false;
   }
 }
 
@@ -336,13 +341,12 @@ async function handleDeepLink() {
   if (deepLinkHandled) return;
   const id = parseDeepLinkConversationId(location.search);
   if (!id) return;
-  deepLinkHandled = true;
   selectConversation(id);
-  await ackReminder(id);
+  const ackOk = await ackReminder(id);
+  if (!shouldClearDeepLinkQuery(ackOk)) return;
+  deepLinkHandled = true;
   try {
-    const url = new URL(location.href);
-    url.searchParams.delete("conversationId");
-    history.replaceState({}, "", url.pathname + url.search + url.hash);
+    history.replaceState({}, "", hrefWithoutDeepLinkConversationId(location.href));
   } catch {
     /* ignore */
   }
@@ -541,8 +545,8 @@ async function fetchSessions() {
 }
 
 async function fetchReminders() {
-  const res = await fetch("/api/reminders");
-  renderInbox(await res.json());
+  const reminders = await fetchRemindersPayload(() => fetch("/api/reminders"));
+  renderInbox(reminders);
 }
 
 async function fetchHooksStatus() {

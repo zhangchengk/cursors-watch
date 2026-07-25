@@ -34,6 +34,42 @@ export function reminderAckPath(conversationId) {
 }
 
 /**
+ * Deep-link `conversationId` may be stripped only after a successful ack so reload can retry.
+ * @param {boolean} ackOk
+ * @returns {boolean}
+ */
+export function shouldClearDeepLinkQuery(ackOk) {
+  return Boolean(ackOk);
+}
+
+/**
+ * Build pathname + search + hash with `conversationId` removed (for history.replaceState).
+ * @param {string} href
+ * @returns {string}
+ */
+export function hrefWithoutDeepLinkConversationId(href) {
+  const url = new URL(href, "http://cursor-watch.local");
+  url.searchParams.delete("conversationId");
+  return url.pathname + url.search + url.hash;
+}
+
+/**
+ * Load pending reminders for boot; never throws — empty on failure so deep-link/WS still run.
+ * @param {() => Promise<Response>} fetchReminders
+ * @returns {Promise<object[]>}
+ */
+export async function fetchRemindersPayload(fetchReminders) {
+  try {
+    const res = await fetchReminders();
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * @param {{ conversationId?: string, chatName?: string, summary?: string }} r
  * @returns {string}
  */

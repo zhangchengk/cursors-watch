@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  fetchRemindersPayload,
   formatReminderEndedAt,
+  hrefWithoutDeepLinkConversationId,
   inboxViewModel,
   parseDeepLinkConversationId,
   reminderAckPath,
   reminderDisplayMeta,
   reminderDisplayTitle,
+  shouldClearDeepLinkQuery,
   sortInboxReminders,
 } from "../src/web/inbox.js";
 
@@ -40,6 +43,56 @@ describe("reminderAckPath", () => {
   it("builds POST path with encoded conversationId", () => {
     expect(reminderAckPath("a/b")).toBe("/api/reminders/a%2Fb/ack");
     expect(reminderAckPath("plain")).toBe("/api/reminders/plain/ack");
+  });
+});
+
+describe("shouldClearDeepLinkQuery", () => {
+  it("clears query only after successful ack so reload can retry", () => {
+    expect(shouldClearDeepLinkQuery(true)).toBe(true);
+    expect(shouldClearDeepLinkQuery(false)).toBe(false);
+  });
+});
+
+describe("hrefWithoutDeepLinkConversationId", () => {
+  it("strips conversationId and keeps other query + hash", () => {
+    expect(
+      hrefWithoutDeepLinkConversationId(
+        "http://127.0.0.1:8787/?conversationId=abc&foo=1#inbox",
+      ),
+    ).toBe("/?foo=1#inbox");
+  });
+
+  it("returns path when conversationId was the only param", () => {
+    expect(hrefWithoutDeepLinkConversationId("/?conversationId=x")).toBe("/");
+  });
+});
+
+describe("fetchRemindersPayload", () => {
+  it("returns list on ok JSON array", async () => {
+    const list = [baseReminder("c1", 1)];
+    const payload = await fetchRemindersPayload(async () =>
+      new Response(JSON.stringify(list), { status: 200 }),
+    );
+    expect(payload).toEqual(list);
+  });
+
+  it("returns empty on network/throw so boot can continue", async () => {
+    await expect(
+      fetchRemindersPayload(async () => {
+        throw new Error("network down");
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it("returns empty on non-OK or non-array body", async () => {
+    await expect(
+      fetchRemindersPayload(async () => new Response("nope", { status: 500 })),
+    ).resolves.toEqual([]);
+    await expect(
+      fetchRemindersPayload(
+        async () => new Response(JSON.stringify({ error: "x" }), { status: 200 }),
+      ),
+    ).resolves.toEqual([]);
   });
 });
 
