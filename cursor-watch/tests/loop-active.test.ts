@@ -2,12 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CURSOR_WATCH_CONVERSATION_ID_ENV } from "../src/constants.js";
+import {
+  CURSOR_WATCH_CONVERSATION_ID_ENV,
+  LOOP_ACTIVE_WINDOW_MS,
+} from "../src/constants.js";
 import { isActiveLoop, type ProcessRow } from "../src/loop-ledger/active.js";
 import { recordLoopLedgerEntry } from "../src/loop-ledger/store.js";
 
 const homes: string[] = [];
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 afterEach(() => {
   for (const h of homes.splice(0)) fs.rmSync(h, { recursive: true, force: true });
@@ -69,7 +71,7 @@ describe("isActiveLoop", () => {
         homeDir: home,
         conversationId: "c1",
         listProcesses: procs({ pid: 42, command: `/bin/bash -c ${fp}` }),
-        now: 1_000 + DAY_MS - 1,
+        now: 1_000 + LOOP_ACTIVE_WINDOW_MS - 1,
       }),
     ).toBe(true);
   });
@@ -87,7 +89,7 @@ describe("isActiveLoop", () => {
         homeDir: home,
         conversationId: "c1",
         listProcesses: procs({ pid: 42, command: fp }),
-        now: 1_000 + DAY_MS + 1,
+        now: 1_000 + LOOP_ACTIVE_WINDOW_MS + 1,
       }),
     ).toBe(false);
   });
@@ -133,7 +135,7 @@ describe("isActiveLoop", () => {
       commandFingerprint: "echo AGENT_LOOP_TICK_other",
       markedConversationId: "c1",
     });
-    const cmd = `CURSOR_WATCH_CONVERSATION_ID=c1 echo AGENT_LOOP_WAKE_xyz; sleep 60`;
+    const cmd = `${CURSOR_WATCH_CONVERSATION_ID_ENV}=c1 echo AGENT_LOOP_WAKE_xyz; sleep 60`;
     expect(
       isActiveLoop({
         homeDir: home,
@@ -142,7 +144,46 @@ describe("isActiveLoop", () => {
         now: 2_000,
       }),
     ).toBe(true);
-    expect(cmd).toContain(`${CURSOR_WATCH_CONVERSATION_ID_ENV}=c1`);
+  });
+
+  it("returns true when ledger unmarked but process argv carries env + sentinel (argv-only precise)", () => {
+    const home = tempHome();
+    recordLoopLedgerEntry(home, {
+      conversationId: "c1",
+      seenAt: 1_000,
+      commandFingerprint: "echo AGENT_LOOP_TICK_other",
+    });
+    expect(
+      isActiveLoop({
+        homeDir: home,
+        conversationId: "c1",
+        listProcesses: procs({
+          pid: 11,
+          command: `${CURSOR_WATCH_CONVERSATION_ID_ENV}=c1 echo AGENT_LOOP_WAKE_xyz; sleep 60`,
+        }),
+        now: 2_000,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat CURSOR_WATCH_CONVERSATION_ID=c10 as a match for conversation c1 (prefix boundary)", () => {
+    const home = tempHome();
+    recordLoopLedgerEntry(home, {
+      conversationId: "c1",
+      seenAt: 1_000,
+      commandFingerprint: "echo AGENT_LOOP_TICK_c1_unrelated",
+    });
+    expect(
+      isActiveLoop({
+        homeDir: home,
+        conversationId: "c1",
+        listProcesses: procs({
+          pid: 10,
+          command: `${CURSOR_WATCH_CONVERSATION_ID_ENV}=c10 echo AGENT_LOOP_WAKE_xyz; sleep 60`,
+        }),
+        now: 2_000,
+      }),
+    ).toBe(false);
   });
 
   it("with markedConversationId: ignores unmarked sentinel that only matches another fingerprint", () => {

@@ -12,8 +12,21 @@ function conversationEnvMarker(conversationId: string): string {
   return `${CURSOR_WATCH_CONVERSATION_ID_ENV}=${conversationId}`;
 }
 
+/** True when command carries `${ENV}=${id}` with an id boundary after the value. */
 function commandHasConversationEnv(command: string, conversationId: string): boolean {
-  return command.includes(conversationEnvMarker(conversationId));
+  const marker = conversationEnvMarker(conversationId);
+  let from = 0;
+  while (from <= command.length) {
+    const idx = command.indexOf(marker, from);
+    if (idx === -1) return false;
+    const after = idx + marker.length;
+    if (after >= command.length) return true;
+    // Boundary: end already handled; next char must be non-identifier
+    // (whitespace, shell metachar like `;|&`, quote, etc.).
+    if (!/[A-Za-z0-9_-]/.test(command[after]!)) return true;
+    from = idx + 1;
+  }
+  return false;
 }
 
 /** Default macOS process table: `ps -ax -o pid=,command=`. */
