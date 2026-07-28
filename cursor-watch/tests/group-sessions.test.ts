@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attentionCardLines,
+  filterRunningSessions,
   formatStatusSummary,
   groupSessionsForUi,
   sortAttentionSessions,
@@ -130,5 +131,22 @@ describe("groupSessionsForUi restored", () => {
   it("formatStatusSummary skips zero counts", () => {
     expect(formatStatusSummary({ waiting: 1, idle: 2 })).toContain("🟡1");
     expect(formatStatusSummary({ waiting: 1, idle: 2 })).toContain("⚪2");
+  });
+});
+
+describe("filterRunningSessions", () => {
+  it("keeps running / subagent / live only", () => {
+    const sessions = [
+      s({ id: "1", status: "running" }),
+      s({ id: "2", status: "waiting", hasUnread: true }),
+      s({ id: "3", status: "idle", turnEnded: true }),
+      s({ id: "4", status: "subagent" }),
+      s({ id: "5", status: "idle", live: true }),
+    ];
+    expect(filterRunningSessions(sessions).map((x) => x.id)).toEqual([
+      "1",
+      "4",
+      "5",
+    ]);
   });
 });

@@ -3,7 +3,7 @@ import { isActiveLoop as defaultIsActiveLoop } from "../loop-ledger/active.js";
 import { loadWatchPrefs } from "../prefs.js";
 import type { SessionState } from "../types.js";
 import { notifyReminder, type NotifyReminderOpts } from "./notify.js";
-import { upsertPendingReminder } from "./store.js";
+import { listPendingReminders, upsertPendingReminder } from "./store.js";
 
 export type SessionReminderMeta = Pick<
   SessionState,
@@ -66,6 +66,12 @@ export function onEffectiveTurnEnd(
     return "suppressed";
   }
 
+  const prior = listPendingReminders(homeDir).find(
+    (r) => r.conversationId === conversationId,
+  );
+  const alreadyNotifiedForStop =
+    prior?.status === "pending" && prior.turnedEndedAt === now;
+
   const record = upsertPendingReminder(homeDir, {
     conversationId,
     projectKey: session?.projectKey,
@@ -79,12 +85,22 @@ export function onEffectiveTurnEnd(
   // Fire after upsert so WS clients see the new pending even if OS notify throws.
   opts.onReminderChanged?.();
 
+  // Same stop replayed (e.g. forceRemind after full-scan race) — skip OS spam.
+  if (alreadyNotifiedForStop) {
+    return "upserted";
+  }
+
   const prefs = loadWatchPrefs(homeDir);
-  notify({
-    record,
-    sound: prefs.notificationSound,
-    panelUrl: defaultPanelUrl(),
-  });
+  try {
+    notify({
+      record,
+      sound: prefs.notificationSound,
+      panelUrl: defaultPanelUrl(),
+    });
+  } catch (err) {
+    // Panel Reminder already persisted; never roll back on OS notify failure.
+    console.error("[cursor-watch] OS notify failed (ignored)", err);
+  }
 
   return "upserted";
 }

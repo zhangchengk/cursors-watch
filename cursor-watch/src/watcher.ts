@@ -24,6 +24,11 @@ const PROJECT_WATCH_DEPTH = 4;
 export type StartWatcherOptions = {
   /** After pipeline upsert — typically ReminderHub.notifyChanged for WS. */
   onReminderChanged?: () => void;
+  /** After store.replaceAll from a full scan (remind newly ended turns). */
+  onSessionsReplaced?: (
+    sessions: SessionState[],
+    previous: SessionState[],
+  ) => void;
 };
 
 export function startWatcher(
@@ -75,8 +80,10 @@ export function startWatcher(
         console.error("[cursor-watch] scan failed", msg.error);
       } else {
         try {
+          const previous = store.getSessions();
           store.replaceAll(msg);
           console.log(`[cursor-watch] sessions=${msg.length}`);
+          opts?.onSessionsReplaced?.(msg, previous);
         } catch (err) {
           console.error("[cursor-watch] store update failed", err);
         }

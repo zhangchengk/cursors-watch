@@ -11,6 +11,17 @@ export function urgencyBucket(s) {
   return 2;
 }
 
+/** Sessions shown in the 「运行中」 panel (not waiting / idle / recent). */
+export function isRunningSession(s) {
+  if (!s) return false;
+  if (s.live) return true;
+  return s.status === "running" || s.status === "subagent";
+}
+
+export function filterRunningSessions(sessions) {
+  return (sessions || []).filter(isRunningSession);
+}
+
 function activityAt(s) {
   return s.composerUpdatedAt ?? s.lastActivityAt ?? 0;
 }

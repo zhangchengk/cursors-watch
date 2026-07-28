@@ -167,7 +167,7 @@ body {
 .inbox-header,
 .sessions-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
@@ -182,15 +182,49 @@ body {
   color: var(--text-muted);
 }
 
+.inbox-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
 .inbox-count {
   font-size: 11px;
   color: var(--text-muted);
 }
 
+.inbox-ack-all {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 0.28rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.inbox-ack-all:hover:not(:disabled) {
+  border-color: #666;
+  background: #2a2a2a;
+}
+
+.inbox-ack-all:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .inbox-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
+  display: grid;
+  grid-template-columns: repeat(var(--attention-cols, 2), minmax(0, 1fr));
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.inbox-body .inbox-empty,
+.inbox-body .inbox-cta {
+  grid-column: 1 / -1;
 }
 
 .inbox-empty,
@@ -211,58 +245,20 @@ body {
   font-size: 11px;
 }
 
-.inbox-card {
+.card.is-selected {
+  outline: 1px solid #888;
+  outline-offset: 1px;
+}
+
+.card-actions {
   display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
-  border: 1px solid var(--border);
-  border-left: 3px solid #e6c07b;
-  border-radius: 4px;
-  background: var(--bg-card);
-  padding: 0.45rem 0.7rem;
-}
-
-.inbox-card.is-selected {
-  outline: 1px solid #888;
-  outline-offset: 1px;
-}
-
-.inbox-card-main {
-  flex: 1;
-  min-width: 0;
-  cursor: pointer;
-}
-
-.inbox-card-main:focus-visible {
-  outline: 1px solid #888;
-  outline-offset: 1px;
-}
-
-.inbox-card .title {
-  font-size: 13px;
-  font-weight: 550;
-  color: var(--text);
-  margin: 0 0 0.2rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.inbox-card .meta {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.inbox-card .ended {
-  font-size: 11px;
-  color: #e6c07b;
-  margin: 0.2rem 0 0;
+  justify-content: flex-end;
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
 }
 
 .inbox-ack {
-  flex-shrink: 0;
   appearance: none;
   border: 1px solid var(--border);
   background: var(--bg-elevated);

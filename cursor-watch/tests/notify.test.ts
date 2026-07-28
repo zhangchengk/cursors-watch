@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
+  buildBannerArgv,
   buildDisplayNotificationScript,
   buildTerminalNotifierArgv,
+  enqueueNotifyArgv,
+  notifyQueueDir,
   notifyReminder,
+  resolveBannerBin,
   resolveTerminalNotifierBin,
 } from "../src/reminders/notify.js";
 import type { ReminderRecord } from "../src/reminders/types.js";
@@ -19,6 +26,50 @@ function record(over: Partial<ReminderRecord> = {}): ReminderRecord {
   };
 }
 
+describe("enqueueNotifyArgv", () => {
+  it("writes argv json under notify-queue", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "cw-notify-"));
+    const file = enqueueNotifyArgv(["/bin/echo", "hi"], home);
+    expect(file.startsWith(notifyQueueDir(home))).toBe(true);
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(parsed.argv).toEqual(["/bin/echo", "hi"]);
+  });
+});
+
+describe("buildBannerArgv", () => {
+  it("orders title subtitle body openUrl lifetime sound", () => {
+    const argv = buildBannerArgv({
+      bin: "/tmp/CursorWatchBanner",
+      title: "Cursor Watch",
+      subtitle: "My Chat",
+      message: "turn ended",
+      openUrl: "http://127.0.0.1:7423/?conversationId=conv-42",
+      sound: true,
+    });
+    expect(argv).toEqual([
+      "/tmp/CursorWatchBanner",
+      "Cursor Watch",
+      "My Chat",
+      "turn ended",
+      "http://127.0.0.1:7423/?conversationId=conv-42",
+      "5",
+      "1",
+    ]);
+  });
+
+  it("uses empty subtitle and sound 0 when omitted/false", () => {
+    const argv = buildBannerArgv({
+      bin: "/tmp/b",
+      title: "Cursor Watch",
+      message: "x",
+      openUrl: "http://127.0.0.1:7423/",
+      sound: false,
+    });
+    expect(argv[2]).toBe("");
+    expect(argv[6]).toBe("0");
+  });
+});
+
 describe("buildTerminalNotifierArgv", () => {
   it("includes title subtitle message group open and optional sound", () => {
     const argv = buildTerminalNotifierArgv({
@@ -32,37 +83,18 @@ describe("buildTerminalNotifierArgv", () => {
     });
     expect(argv[0]).toBe("/tmp/terminal-notifier");
     expect(argv).toContain("-title");
-    expect(argv).toContain("Cursor Watch");
-    expect(argv).toContain("-subtitle");
-    expect(argv).toContain("My Chat");
-    expect(argv).toContain("-message");
-    expect(argv).toContain("turn ended");
     expect(argv).toContain("-group");
-    expect(argv).toContain("cursor-watch-reminder-conv-42");
-    expect(argv).toContain("-open");
-    expect(argv).toContain("http://127.0.0.1:7423/?conversationId=conv-42");
     expect(argv).toContain("-sound");
     expect(argv).toContain("Glass");
-  });
-
-  it("omits -sound when sound false", () => {
-    const argv = buildTerminalNotifierArgv({
-      bin: "/tmp/terminal-notifier",
-      title: "Cursor Watch",
-      message: "x",
-      group: "g",
-      openUrl: "http://127.0.0.1:7423/",
-      sound: false,
-    });
-    expect(argv).not.toContain("-sound");
   });
 });
 
 describe("notifyReminder", () => {
-  it("calls run once with terminal-notifier argv (no afplay, no alert)", () => {
+  it("prefers CursorWatchBanner HUD argv", () => {
     const run = vi.fn();
-    const bin = resolveTerminalNotifierBin();
+    const bin = resolveBannerBin();
     expect(bin).toBeTruthy();
+    expect(resolveTerminalNotifierBin()).toBeTruthy();
 
     notifyReminder({
       record: record(),
@@ -74,17 +106,14 @@ describe("notifyReminder", () => {
     expect(run).toHaveBeenCalledTimes(1);
     const argv = run.mock.calls[0]![0] as string[];
     expect(argv[0]).toBe(bin);
-    expect(argv.join(" ")).toContain("-title");
-    expect(argv.join(" ")).toContain("Cursor Watch");
-    expect(argv.join(" ")).toContain("-group");
-    expect(argv.join(" ")).toContain("cursor-watch-reminder-conv-42");
-    expect(argv.join(" ")).toContain("-open");
-    expect(argv.join(" ")).toContain("conversationId=conv-42");
-    expect(argv.join(" ")).not.toContain("display alert");
-    expect(argv[0]).not.toBe("/usr/bin/afplay");
+    expect(argv[1]).toBe("Cursor Watch");
+    expect(argv[2]).toBe("My Chat");
+    expect(argv[3]).toContain("turn ended");
+    expect(argv[4]).toContain("conversationId=conv-42");
+    expect(argv[6]).toBe("0");
   });
 
-  it("adds -sound Glass when sound true", () => {
+  it("sets sound flag when sound true", () => {
     const run = vi.fn();
     notifyReminder({
       record: record(),
@@ -92,10 +121,8 @@ describe("notifyReminder", () => {
       panelUrl: "http://127.0.0.1:7423/",
       run,
     });
-    expect(run).toHaveBeenCalledTimes(1);
     const argv = run.mock.calls[0]![0] as string[];
-    expect(argv).toContain("-sound");
-    expect(argv).toContain("Glass");
+    expect(argv[6]).toBe("1");
   });
 
   it("falls back title when chatName missing", () => {
@@ -107,7 +134,8 @@ describe("notifyReminder", () => {
       run,
     });
     const argv = run.mock.calls[0]![0] as string[];
-    expect(argv.join(" ")).toContain("Cursor Watch");
+    expect(argv[1]).toBe("Cursor Watch");
+    expect(argv[2]).toBe("");
   });
 
   it("truncates long markdown summary", () => {
@@ -120,8 +148,8 @@ describe("notifyReminder", () => {
       run,
     });
     const argv = run.mock.calls[0]![0] as string[];
-    expect(argv.join(" ").length).toBeLessThan(2000);
-    expect(argv.join(" ")).toContain("…");
+    expect(argv[3]!.length).toBeLessThanOrEqual(120);
+    expect(argv[3]).toContain("…");
   });
 });
 

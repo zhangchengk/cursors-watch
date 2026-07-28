@@ -205,7 +205,8 @@ describe("onEffectiveTurnEnd", () => {
   it("invokes onReminderChanged after upsert even when notify throws", () => {
     const home = tempHome();
     const onReminderChanged = vi.fn();
-    expect(() =>
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(
       onEffectiveTurnEnd({
         homeDir: home,
         conversationId: "c5",
@@ -217,8 +218,9 @@ describe("onEffectiveTurnEnd", () => {
         onReminderChanged,
         now: 9_000,
       }),
-    ).toThrow("os notify boom");
+    ).toBe("upserted");
     expect(onReminderChanged).toHaveBeenCalledTimes(1);
     expect(listPendingReminders(home)).toHaveLength(1);
+    errSpy.mockRestore();
   });
 });

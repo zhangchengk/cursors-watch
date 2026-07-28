@@ -9,7 +9,7 @@ import {
   rescanProjectShells,
   syncComposerHeaders,
 } from "../src/incremental-scan.js";
-import { listPendingReminders } from "../src/reminders/store.js";
+import { listPendingReminders, upsertPendingReminder, ackReminder } from "../src/reminders/store.js";
 import { ScanCaches } from "../src/scan-caches.js";
 import { SessionStore } from "../src/store.js";
 import type { SessionState } from "../src/types.js";
@@ -457,15 +457,25 @@ describe("applyLivePatch", () => {
   it("does not re-fire reminder when session already turnEnded", () => {
     const fx = makeLayout();
     const store = new SessionStore();
+    const stoppedAt = fx.now - 10_000;
     store.upsert(
       baseSession(fx, {
         status: "idle",
         live: false,
         turnEnded: true,
-        turnEndedAt: fx.now - 10_000,
+        turnEndedAt: stoppedAt,
         liveHint: "already ended",
       }),
     );
+
+    // Seed: already reminded for this stoppedAt (acked).
+    upsertPendingReminder(fx.home, {
+      conversationId: fx.parentId,
+      turnedEndedAt: stoppedAt,
+      summary: "already ended",
+      chatName: "T",
+    });
+    ackReminder(fx.home, fx.parentId, stoppedAt + 1);
 
     const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
     fs.mkdirSync(path.dirname(livePath), { recursive: true });
@@ -474,8 +484,8 @@ describe("applyLivePatch", () => {
       JSON.stringify({
         conversationId: fx.parentId,
         lastEvent: "stop",
-        lastLiveAt: fx.now - 10_000,
-        stoppedAt: fx.now - 10_000,
+        lastLiveAt: stoppedAt,
+        stoppedAt,
         liveHint: "already ended",
         updatedAt: fx.now,
       }),
@@ -493,6 +503,164 @@ describe("applyLivePatch", () => {
       notify,
     });
     expect(listPendingReminders(fx.home)).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("fires reminder when stoppedAt is newer than last reminded (even if session already turnEnded)", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    const prevStop = fx.now - 60_000;
+    // Full scan already stamped the NEW stoppedAt onto the session (race).
+    store.upsert(
+      baseSession(fx, {
+        status: "idle",
+        live: false,
+        turnEnded: true,
+        turnEndedAt: fx.now,
+        liveHint: "new stop",
+      }),
+    );
+
+    upsertPendingReminder(fx.home, {
+      conversationId: fx.parentId,
+      turnedEndedAt: prevStop,
+      summary: "old",
+      chatName: "T",
+    });
+    ackReminder(fx.home, fx.parentId, prevStop + 1);
+
+    const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
+    fs.mkdirSync(path.dirname(livePath), { recursive: true });
+    fs.writeFileSync(
+      livePath,
+      JSON.stringify({
+        conversationId: fx.parentId,
+        lastEvent: "stop",
+        lastLiveAt: fx.now,
+        stoppedAt: fx.now,
+        liveHint: "new stop after ack",
+        updatedAt: fx.now,
+      }),
+    );
+
+    const notify = vi.fn();
+    applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now + 1,
+      isActiveLoop: () => false,
+      notify,
+    });
+    const pending = listPendingReminders(fx.home);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.turnedEndedAt).toBe(fx.now);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires reminder when stoppedAt is newer than existing turnEndedAt", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    const prevStop = fx.now - 60_000;
+    store.upsert(
+      baseSession(fx, {
+        status: "idle",
+        live: false,
+        turnEnded: true,
+        turnEndedAt: prevStop,
+        liveHint: "old stop",
+      }),
+    );
+
+    const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
+    fs.mkdirSync(path.dirname(livePath), { recursive: true });
+    fs.writeFileSync(
+      livePath,
+      JSON.stringify({
+        conversationId: fx.parentId,
+        lastEvent: "stop",
+        lastLiveAt: fx.now,
+        stoppedAt: fx.now,
+        liveHint: "new stop after missed clear",
+        updatedAt: fx.now,
+      }),
+    );
+
+    const notify = vi.fn();
+    applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now + 1,
+      isActiveLoop: () => false,
+      notify,
+    });
+    const pending = listPendingReminders(fx.home);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.turnedEndedAt).toBe(fx.now);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("forceRemind fires even when store already stamped same stoppedAt", () => {
+    const fx = makeLayout();
+    const store = new SessionStore();
+    store.upsert(
+      baseSession(fx, {
+        status: "idle",
+        live: false,
+        turnEnded: true,
+        turnEndedAt: fx.now,
+        liveHint: "scan stamped first",
+      }),
+    );
+
+    const livePath = path.join(liveDir(fx.home), `${fx.parentId}.json`);
+    fs.mkdirSync(path.dirname(livePath), { recursive: true });
+    fs.writeFileSync(
+      livePath,
+      JSON.stringify({
+        conversationId: fx.parentId,
+        lastEvent: "stop",
+        lastLiveAt: fx.now,
+        stoppedAt: fx.now,
+        liveHint: "scan stamped first",
+        updatedAt: fx.now,
+      }),
+    );
+
+    const notify = vi.fn();
+    applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now + 5,
+      isActiveLoop: () => false,
+      notify,
+      forceRemind: true,
+    });
+    expect(listPendingReminders(fx.home)).toHaveLength(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    // Replay same stop: coalesce skips second OS notify.
+    notify.mockClear();
+    applyLivePatch({
+      conversationId: fx.parentId,
+      store,
+      caches: fx.caches,
+      homeDir: fx.home,
+      projectsDir: fx.projectsDir,
+      now: fx.now + 6,
+      isActiveLoop: () => false,
+      notify,
+      forceRemind: true,
+    });
+    expect(listPendingReminders(fx.home)).toHaveLength(1);
     expect(notify).not.toHaveBeenCalled();
   });
 });

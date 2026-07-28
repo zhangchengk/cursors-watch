@@ -1,6 +1,5 @@
 import {
   loadPrefs,
-  saveViewMode,
   saveAttentionColumns,
   clampAttentionColumns,
   effectiveAttentionColumns,
@@ -10,8 +9,7 @@ import {
 import {
   attentionCardLines,
   sortAttentionSessions,
-  groupSessionsForUi,
-  formatStatusSummary,
+  filterRunningSessions,
 } from "./group-sessions.js";
 import {
   formatActionLine,
@@ -20,13 +18,10 @@ import {
 } from "./drawer-format.js";
 import {
   fetchRemindersPayload,
-  formatReminderEndedAt,
   hrefWithoutDeepLinkConversationId,
   inboxViewModel,
   parseDeepLinkConversationId,
   reminderAckPath,
-  reminderDisplayMeta,
-  reminderDisplayTitle,
   shouldClearDeepLinkQuery,
 } from "./inbox.js";
 
@@ -36,6 +31,7 @@ const drawerEl = document.getElementById("drawer");
 const toastEl = document.getElementById("toast");
 const inboxBodyEl = document.getElementById("inboxBody");
 const inboxCountEl = document.getElementById("inboxCount");
+const ackAllBtn = document.getElementById("ackAllBtn");
 const soundToggleEl = document.getElementById("soundToggle");
 
 let prefs = loadPrefs();
@@ -46,6 +42,7 @@ let selectedConversationId = null;
 let notificationSound = false;
 let resizeTimer = null;
 let deepLinkHandled = false;
+let ackAllInFlight = false;
 
 let toastTimer = null;
 function showToast(message) {
@@ -104,27 +101,28 @@ function completionBanner(s) {
 }
 
 function syncChrome() {
-  const modeAttention = document.getElementById("modeAttention");
-  const modeWorkspace = document.getElementById("modeWorkspace");
-  if (modeAttention) {
-    modeAttention.classList.toggle("active", prefs.viewMode === "attention");
-  }
-  if (modeWorkspace) {
-    modeWorkspace.classList.toggle("active", prefs.viewMode === "workspace");
-  }
-  const colsControl = document.getElementById("colsControl");
-  if (colsControl) {
-    colsControl.hidden = prefs.viewMode !== "attention";
-  }
   const colsValue = document.getElementById("colsValue");
   if (colsValue) {
     colsValue.textContent = String(prefs.attentionColumns);
   }
+  applyAttentionCols();
 }
 
-function mountCard(s, { showPathBar = false } = {}) {
+function applyAttentionCols() {
+  const cols = effectiveAttentionColumns(prefs.attentionColumns, window.innerWidth);
+  const css = String(cols);
+  if (listEl) listEl.style.setProperty("--attention-cols", css);
+  if (inboxBodyEl) inboxBodyEl.style.setProperty("--attention-cols", css);
+}
+
+/**
+ * @param {object} s
+ * @param {{ showPathBar?: boolean, onAck?: (() => void) | null, selected?: boolean }} [opts]
+ */
+function mountCard(s, { showPathBar = false, onAck = null, selected = false } = {}) {
   const card = document.createElement("div");
-  card.className = `card attention ${s.status}`;
+  card.className = `card attention ${s.status || "idle"}`;
+  if (selected) card.classList.add("is-selected");
   card.tabIndex = 0;
   const lines = attentionCardLines(s);
   const banner = completionBanner(s);
@@ -138,6 +136,9 @@ function mountCard(s, { showPathBar = false } = {}) {
     showPathBar && lines.workspaceDir
       ? `<div class="workspace-path" title="${escapeHtml(lines.workspacePath || lines.workspaceDir)}">${escapeHtml(lines.workspaceDir)}</div>`
       : "";
+  const ackRow = onAck
+    ? `<div class="card-actions"><button type="button" class="inbox-ack">确认</button></div>`
+    : "";
   card.innerHTML = `
     <div class="summary-row">
       <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(lines.title)} · ${formatDuration(lines.ageMs)}</div>
@@ -146,16 +147,17 @@ function mountCard(s, { showPathBar = false } = {}) {
     ${liveBit ? `<div class="action">${liveBit}</div>` : ""}
     ${dir}
     ${banner ? `<div class="completion">${escapeHtml(banner)}</div>` : ""}
+    ${ackRow}
   `;
   card.classList.toggle("is-live", Boolean(s.live));
   const openMain = () => openDrawer(s);
   card.addEventListener("click", (ev) => {
-    if (ev.target.closest(".open-cursor")) return;
+    if (ev.target.closest(".open-cursor") || ev.target.closest(".inbox-ack")) return;
     openMain();
   });
   card.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter" || ev.key === " ") {
-      if (ev.target.closest(".open-cursor")) return;
+      if (ev.target.closest(".open-cursor") || ev.target.closest(".inbox-ack")) return;
       ev.preventDefault();
       openMain();
     }
@@ -167,50 +169,26 @@ function mountCard(s, { showPathBar = false } = {}) {
       void openInCursor(s.workspacePath);
     });
   }
+  const ackBtn = card.querySelector(".inbox-ack");
+  if (ackBtn && onAck) {
+    ackBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      onAck();
+    });
+  }
   return card;
 }
 
-function renderAttention(sessions) {
-  const cols = effectiveAttentionColumns(prefs.attentionColumns, window.innerWidth);
+function renderRunning(sessions) {
   listEl.className = "list-attention";
-  listEl.style.setProperty("--attention-cols", String(cols));
-  if (!sessions.length) {
-    listEl.innerHTML = `<p class="empty-state">暂无需要关注的会话</p>`;
+  applyAttentionCols();
+  const running = sortAttentionSessions(filterRunningSessions(sessions));
+  if (!running.length) {
+    listEl.innerHTML = `<p class="empty-state">暂无运行中的会话</p>`;
     return;
   }
-  const ordered = sortAttentionSessions(sessions);
-  for (const s of ordered) {
+  for (const s of running) {
     listEl.appendChild(mountCard(s, { showPathBar: true }));
-  }
-}
-
-function renderWorkspace(sessions) {
-  listEl.className = "list-workspace";
-  listEl.style.removeProperty("--attention-cols");
-  if (!sessions.length) {
-    listEl.innerHTML = `<p class="empty-state">暂无需要关注的会话</p>`;
-    return;
-  }
-  const groups = groupSessionsForUi(sessions);
-  for (const g of groups) {
-    const section = document.createElement("section");
-    section.className = "workspace-group";
-
-    const header = document.createElement("div");
-    header.className = "group-header";
-    const summary = formatStatusSummary(g.statusCounts);
-    header.textContent = summary
-      ? `${g.label} · 显示 ${g.sessions.length} / 组内 ${g.totalCount} · ${summary}`
-      : `${g.label} · 显示 ${g.sessions.length} / 组内 ${g.totalCount}`;
-    section.appendChild(header);
-
-    const body = document.createElement("div");
-    body.className = "group-sessions";
-    for (const s of g.sessions) {
-      body.appendChild(mountCard(s, { showPathBar: false }));
-    }
-    section.appendChild(body);
-    listEl.appendChild(section);
   }
 }
 
@@ -221,9 +199,43 @@ function render(sessions) {
   countsEl.textContent = `🟢${counts.running} 🟡${counts.waiting} 🔵${counts.subagent} ⚪${counts.idle} 🔴${counts.error}`;
 
   listEl.innerHTML = "";
-  if (prefs.viewMode === "workspace") renderWorkspace(latestSessions);
-  else renderAttention(latestSessions);
+  renderRunning(latestSessions);
   syncChrome();
+  // Re-render inbox so reminder cards pick up fresh session fields.
+  renderInbox(latestReminders);
+}
+
+function reminderAsSession(r) {
+  const existing = findSession(r.conversationId);
+  if (existing) {
+    return {
+      ...existing,
+      chatName: existing.chatName || r.chatName,
+      summary: r.summary || existing.summary,
+      liveHint: r.summary || existing.liveHint,
+      turnEnded: true,
+      lastActivityAt: r.turnedEndedAt || existing.lastActivityAt,
+    };
+  }
+  return {
+    id: r.conversationId,
+    chatName: r.chatName || "",
+    summary: r.summary || "",
+    workspacePath: r.workspacePath || "",
+    workspaceLabel: r.workspaceLabel || "",
+    status: "idle",
+    lastActivityAt: r.turnedEndedAt || Date.now(),
+    turnEnded: true,
+    hasUnread: false,
+    live: false,
+  };
+}
+
+function syncAckAllBtn(model) {
+  if (!ackAllBtn) return;
+  const show = model.mode === "list" && model.reminders.length > 0;
+  ackAllBtn.hidden = !show;
+  ackAllBtn.disabled = ackAllInFlight;
 }
 
 function renderInbox(reminders) {
@@ -239,8 +251,11 @@ function renderInbox(reminders) {
     inboxCountEl.textContent =
       model.mode === "list" ? `${model.reminders.length}` : model.mode === "hooks-cta" ? "未安装" : "";
   }
+  syncAckAllBtn(model);
 
   inboxBodyEl.innerHTML = "";
+  inboxBodyEl.className = "inbox-body list-attention";
+  applyAttentionCols();
 
   if (model.mode === "hooks-cta") {
     const cta = document.createElement("div");
@@ -261,50 +276,17 @@ function renderInbox(reminders) {
   }
 
   for (const r of model.reminders) {
-    inboxBodyEl.appendChild(mountInboxCard(r));
+    const session = reminderAsSession(r);
+    inboxBodyEl.appendChild(
+      mountCard(session, {
+        showPathBar: true,
+        selected: selectedConversationId === r.conversationId,
+        onAck: () => {
+          void ackReminder(r.conversationId);
+        },
+      }),
+    );
   }
-}
-
-function mountInboxCard(r) {
-  const card = document.createElement("div");
-  card.className = "inbox-card";
-  card.dataset.conversationId = r.conversationId;
-  if (selectedConversationId === r.conversationId) card.classList.add("is-selected");
-
-  const title = reminderDisplayTitle(r);
-  const meta = reminderDisplayMeta(r);
-  const ended = formatReminderEndedAt(r.turnedEndedAt);
-
-  const main = document.createElement("div");
-  main.className = "inbox-card-main";
-  main.tabIndex = 0;
-  main.setAttribute("role", "button");
-  main.innerHTML = `
-    <p class="title">${escapeHtml(title)}</p>
-    ${meta ? `<p class="meta">${escapeHtml(meta)}</p>` : ""}
-    <p class="ended">${escapeHtml(ended)}</p>
-  `;
-  const open = () => selectConversation(r.conversationId);
-  main.addEventListener("click", open);
-  main.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter" || ev.key === " ") {
-      ev.preventDefault();
-      open();
-    }
-  });
-
-  const ackBtn = document.createElement("button");
-  ackBtn.type = "button";
-  ackBtn.className = "inbox-ack";
-  ackBtn.textContent = "确认";
-  ackBtn.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    void ackReminder(r.conversationId);
-  });
-
-  card.appendChild(main);
-  card.appendChild(ackBtn);
-  return card;
 }
 
 function findSession(conversationId) {
@@ -316,6 +298,10 @@ function selectConversation(conversationId) {
   renderInbox(latestReminders);
   const session = findSession(conversationId);
   if (session) openDrawer(session);
+  else {
+    const r = latestReminders.find((x) => x.conversationId === conversationId);
+    if (r) openDrawer(reminderAsSession(r));
+  }
 }
 
 async function ackReminder(conversationId) {
@@ -334,6 +320,44 @@ async function ackReminder(conversationId) {
   } catch (err) {
     showToast(err instanceof Error ? err.message : "确认失败");
     return false;
+  }
+}
+
+async function ackAllReminders() {
+  if (ackAllInFlight) return;
+  const ids = latestReminders.map((r) => r.conversationId).filter(Boolean);
+  if (!ids.length) return;
+  ackAllInFlight = true;
+  syncAckAllBtn(inboxViewModel({ reminders: latestReminders, hooksInstalled }));
+  try {
+    const settled = await Promise.all(
+      ids.map(async (conversationId) => {
+        try {
+          const res = await fetch(reminderAckPath(conversationId), {
+            method: "POST",
+          });
+          const data = await res.json().catch(() => ({}));
+          return res.ok && data.ok ? conversationId : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const acked = new Set(settled.filter(Boolean));
+    latestReminders = latestReminders.filter(
+      (r) => !acked.has(r.conversationId),
+    );
+    if (selectedConversationId && acked.has(selectedConversationId)) {
+      selectedConversationId = null;
+    }
+    renderInbox(latestReminders);
+    const ok = acked.size;
+    if (ok === ids.length) showToast(`已确认 ${ok} 条`);
+    else if (ok > 0) showToast(`已确认 ${ok}/${ids.length} 条`);
+    else showToast("全部确认失败");
+  } finally {
+    ackAllInFlight = false;
+    syncAckAllBtn(inboxViewModel({ reminders: latestReminders, hooksInstalled }));
   }
 }
 
@@ -385,21 +409,6 @@ async function putNotificationSound(enabled) {
 }
 
 function bindViewControls() {
-  const modeAttention = document.getElementById("modeAttention");
-  const modeWorkspace = document.getElementById("modeWorkspace");
-  const setMode = (mode) => {
-    if (mode !== "attention" && mode !== "workspace") return;
-    prefs.viewMode = mode;
-    saveViewMode(mode);
-    render(latestSessions);
-  };
-  if (modeAttention) {
-    modeAttention.addEventListener("click", () => setMode("attention"));
-  }
-  if (modeWorkspace) {
-    modeWorkspace.addEventListener("click", () => setMode("workspace"));
-  }
-
   const colsDec = document.getElementById("colsDec");
   const colsInc = document.getElementById("colsInc");
   const bumpCols = (delta) => {
@@ -417,9 +426,13 @@ function bindViewControls() {
   window.addEventListener("resize", () => {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      if (prefs.viewMode === "attention") render(latestSessions);
+      render(latestSessions);
     }, 100);
   });
+
+  if (ackAllBtn) {
+    ackAllBtn.addEventListener("click", () => void ackAllReminders());
+  }
 }
 
 function openDrawer(s) {
@@ -583,8 +596,6 @@ function connectWs() {
     }
   };
   ws.onclose = () => {
-    // Daemon restarts drop the socket; without reconnect the UI freezes on the
-    // last frame even while /api/sessions stays fresh.
     setTimeout(() => {
       void fetchSessions().catch(() => {});
       void fetchReminders().catch(() => {});

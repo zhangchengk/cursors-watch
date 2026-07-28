@@ -61,6 +61,8 @@ export function createRefreshController(opts: {
   let pruneTimer: ReturnType<typeof setInterval> | null = null;
   const keyTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingIncrementalKeys = new Set<string>();
+  /** live: ids deferred during full scan — need forceRemind on replay. */
+  const pendingLiveForceRemind = new Set<string>();
 
   function doFullScan(): void {
     if (fullScanInFlight) {
@@ -119,6 +121,9 @@ export function createRefreshController(opts: {
   function flushKey(key: string): void {
     if (fullScanInFlight) {
       pendingIncrementalKeys.add(key);
+      if (key.startsWith("live:")) {
+        pendingLiveForceRemind.add(key.slice("live:".length));
+      }
       return;
     }
     if (key === "headers:") {
@@ -134,6 +139,7 @@ export function createRefreshController(opts: {
     try {
       if (key.startsWith("live:")) {
         const conversationId = key.slice("live:".length);
+        const forceRemind = pendingLiveForceRemind.delete(conversationId);
         applyLivePatch({
           conversationId,
           store: opts.store,
@@ -142,6 +148,7 @@ export function createRefreshController(opts: {
           projectsDir: opts.projectsDir,
           now,
           onReminderChanged: opts.onReminderChanged,
+          forceRemind,
         });
         return;
       }

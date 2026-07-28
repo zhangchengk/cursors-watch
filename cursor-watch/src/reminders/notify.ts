@@ -1,14 +1,17 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { stateDir } from "../constants.js";
 import type { ReminderRecord } from "./types.js";
 
 /**
  * macOS delivery:
- * - Prefer vendored terminal-notifier (Notification Center banner).
- * - Fallback: osascript display notification (may be silent on some machines).
- * - notify-worker keeps a clean FD table (daemon chokidar → spawn EBADF).
+ * - Prefer vendored CursorWatchBanner HUD (top-right panel). Notification Center
+ *   banners are often denied / invisible for unsigned helpers on modern macOS.
+ * - Fallback: terminal-notifier, then osascript display notification.
+ * - Delivery goes through notify-worker (clean FDs) via IPC + durable queue
+ *   (~/.cursor-watch/notify-queue) so lost IPC after long daemon uptime still fires.
  */
 
 export type NotifyReminderOpts = {
@@ -20,6 +23,7 @@ export type NotifyReminderOpts = {
 
 const DEFAULT_TITLE = "Cursor Watch";
 const MAX_NOTIFY_BODY_CHARS = 160;
+const BANNER_LIFETIME_SECONDS = "5";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workerPath = fileURLToPath(
@@ -28,12 +32,41 @@ const workerPath = fileURLToPath(
 
 let worker: ChildProcess | null = null;
 
+export function resolveBannerBin(): string | null {
+  const bin = path.resolve(
+    here,
+    "../../vendor/mac/CursorWatchBanner.app/Contents/MacOS/CursorWatchBanner",
+  );
+  return existsSync(bin) ? bin : null;
+}
+
 export function resolveTerminalNotifierBin(): string | null {
   const bin = path.resolve(
     here,
     "../../vendor/mac/terminal-notifier.app/Contents/MacOS/terminal-notifier",
   );
   return existsSync(bin) ? bin : null;
+}
+
+/** HUD argv: bin title subtitle body openUrl lifetimeSeconds sound01 */
+export function buildBannerArgv(opts: {
+  bin: string;
+  title: string;
+  subtitle?: string;
+  message: string;
+  openUrl: string;
+  sound: boolean;
+  lifetimeSeconds?: string;
+}): string[] {
+  return [
+    opts.bin,
+    opts.title,
+    opts.subtitle?.trim() || "",
+    opts.message,
+    opts.openUrl,
+    opts.lifetimeSeconds ?? BANNER_LIFETIME_SECONDS,
+    opts.sound ? "1" : "0",
+  ];
 }
 
 export function buildTerminalNotifierArgv(opts: {
@@ -103,13 +136,41 @@ export function buildDisplayNotificationScript(opts: {
   return script;
 }
 
+export function notifyQueueDir(homeDir = stateDir()): string {
+  return path.join(homeDir, "notify-queue");
+}
+
+/** Durable handoff so delivery survives dead IPC / daemon FD exhaustion. */
+export function enqueueNotifyArgv(argv: string[], homeDir = stateDir()): string {
+  const dir = notifyQueueDir(homeDir);
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(
+    dir,
+    `${Date.now()}-${process.pid}-${Math.random().toString(16).slice(2)}.json`,
+  );
+  writeFileSync(file, `${JSON.stringify({ argv })}\n`, "utf8");
+  return file;
+}
+
 /** Start before chokidar so the worker inherits a small FD set. */
 export function startNotifyWorker(): void {
-  if (worker && !worker.killed) return;
+  if (worker && !worker.killed && worker.connected) return;
+  if (worker) {
+    try {
+      worker.kill();
+    } catch {
+      /* ignore */
+    }
+    worker = null;
+  }
   try {
     worker = spawn(process.execPath, [workerPath], {
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       detached: false,
+      env: {
+        ...process.env,
+        CURSOR_WATCH_STATE_DIR: stateDir(),
+      },
     });
     worker.on("error", (err) => {
       console.error("[cursor-watch] notify worker error", err);
@@ -145,21 +206,6 @@ function sendViaWorker(msg: Record<string, unknown>): boolean {
   }
 }
 
-function defaultRun(argv: string[]): void {
-  try {
-    const child = spawn(argv[0]!, argv.slice(1), {
-      detached: true,
-      stdio: "ignore",
-    });
-    child.on("error", (err) => {
-      console.error("[cursor-watch] notify spawn error", err);
-    });
-    child.unref();
-  } catch (err) {
-    console.error("[cursor-watch] notify spawn threw", err);
-  }
-}
-
 export function notifyReminder(opts: NotifyReminderOpts): void {
   const chatName = opts.record.chatName?.trim();
   const subtitle = chatName
@@ -175,11 +221,21 @@ export function notifyReminder(opts: NotifyReminderOpts): void {
   );
   const group = opts.record.notifyId;
 
-  const bin = resolveTerminalNotifierBin();
+  const bannerBin = resolveBannerBin();
+  const tnBin = resolveTerminalNotifierBin();
   let argv: string[];
-  if (bin) {
+  if (bannerBin) {
+    argv = buildBannerArgv({
+      bin: bannerBin,
+      title: DEFAULT_TITLE,
+      subtitle,
+      message,
+      openUrl,
+      sound: opts.sound,
+    });
+  } else if (tnBin) {
     argv = buildTerminalNotifierArgv({
-      bin,
+      bin: tnBin,
       title: DEFAULT_TITLE,
       subtitle,
       message,
@@ -188,7 +244,7 @@ export function notifyReminder(opts: NotifyReminderOpts): void {
       sound: opts.sound,
     });
   } else {
-    console.error("[cursor-watch] terminal-notifier missing");
+    console.error("[cursor-watch] banner helpers missing");
     const script = buildDisplayNotificationScript({
       title: DEFAULT_TITLE,
       body: message,
@@ -203,7 +259,16 @@ export function notifyReminder(opts: NotifyReminderOpts): void {
     return;
   }
 
-  if (!sendViaWorker({ type: "notify", argv })) {
-    defaultRun(argv);
+  // Always enqueue first — worker drains the queue even if IPC is dead.
+  try {
+    enqueueNotifyArgv(argv);
+  } catch (err) {
+    console.error("[cursor-watch] notify enqueue failed", err);
   }
+
+  if (sendViaWorker({ type: "drain" })) return;
+
+  // IPC dead after long uptime / EBADF: restart sidecar and nudge drain.
+  startNotifyWorker();
+  sendViaWorker({ type: "drain" });
 }

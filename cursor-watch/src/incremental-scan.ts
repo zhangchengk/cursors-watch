@@ -19,6 +19,7 @@ import {
   type IsActiveLoopFn,
   type NotifyReminderFn,
 } from "./reminders/pipeline.js";
+import { shouldRemindForStoppedAt } from "./reminders/should-remind.js";
 import type { SessionStore } from "./store.js";
 import type { SessionState } from "./types.js";
 
@@ -145,6 +146,11 @@ export function applyLivePatch(opts: {
   isActiveLoop?: IsActiveLoopFn;
   notify?: NotifyReminderFn;
   onReminderChanged?: () => void;
+  /**
+   * When true, fire Reminder even if store already has the same turnEndedAt
+   * (used after full-scan deferral: scan marks turnEnded before live flush).
+   */
+  forceRemind?: boolean;
 }): "upserted" | "missing" | "removed" {
   const now = opts.now ?? Date.now();
   const existing = opts.store
@@ -152,10 +158,18 @@ export function applyLivePatch(opts: {
     .find((s) => s.id === opts.conversationId);
   if (!existing) return "missing";
 
-  const wasTurnEnded = existing.turnEnded === true;
   const snap = readLiveSnap(opts.homeDir, opts.conversationId);
+  const stoppedAt = snap?.stoppedAt ?? null;
+  // Compare against last Reminder stop id (file), not session.turnEndedAt —
+  // full scan may stamp the session before this live flush runs.
   const becomingTurnEnded =
-    !wasTurnEnded && snap != null && snap.stoppedAt != null;
+    stoppedAt != null &&
+    (opts.forceRemind === true ||
+      shouldRemindForStoppedAt(
+        opts.homeDir,
+        opts.conversationId,
+        stoppedAt,
+      ));
 
   let merged = mergeSessionExtras(
     stripLiveFields(existing),
@@ -203,7 +217,8 @@ export function applyLivePatch(opts: {
           summary: merged.summary,
         },
         liveHint: merged.liveHint ?? snap?.liveHint,
-        now,
+        // Stable stop identity so coalesce can skip duplicate OS notify.
+        now: stoppedAt ?? now,
         isActiveLoop: opts.isActiveLoop,
         notify: opts.notify,
         onReminderChanged: opts.onReminderChanged,
