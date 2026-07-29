@@ -21,8 +21,24 @@ _Avoid_: 未读（作为唯一触发条件）、任务完成（未定义清楚�
 _Avoid_: 仅凭 transcript 里出现过 `/loop` 文案、把每次 tick 间隙的 `stop` 当完成
 
 **Reminder delivery（提醒送达）**:
-Turn end 且非 Active loop 时的打断方式：以系统通知（可带声音）为主通道，面板作为待确认收件箱保留同一条 Reminder。
-_Avoid_: 仅靠卡片脚注/banner、把通知当成唯一且划掉即丢的通道
+Turn end 且非 Active loop 时的打断方式：以系统通知（可带声音）为主通道，面板作为待确认收件箱保留同一条 Reminder。Menubar shell 落地后：优先由壳申请并发送系统通知；权限未开或投递失败时回退 **HUD 浮层**。
+_Avoid_: 仅靠卡片脚注/banner、把通知当成唯一且划掉即丢的通道、无回退的「只靠通知中心」
+
+**HUD 浮层（heads-up display）**:
+不经过通知中心、由本机小程序直接画在屏幕右上角的短暂提示条（现实现为 `CursorWatchBanner`）。不叫系统横幅；不依赖通知权限。用于系统通知不可用时的兜底。
+_Avoid_: 把 HUD 叫成「系统通知」、模态 `display alert` 对话框
+
+**Open at login（登录时打开）**:
+用户登录 macOS 后**默认**自动拉起 Menubar shell（从而拉起内嵌 daemon）。菜单内可退出或关闭「登录时打开」。与「每次手动启动」相对。
+_Avoid_: 仅靠文档提醒用户开机后执行命令、默认不注册登录项却仍承诺「不用每次启动」
+
+**Shell v1（菜单栏壳首版）**:
+最小可用 Menubar shell：内嵌 daemon、默认登录打开、菜单栏入口、WKWebView 面板、系统通知优先 + HUD 回退、可退出。不含：一键装 hooks、自动更新、多窗口、大改设置页。
+_Avoid_: 把 hooks 安装/自动更新绑进首版必达、首版做成完整上架产品
+
+**Informal app（非正式 App）**:
+本机自用的 `.app` 交付：可 ad-hoc 签名；**安装落点为 `/Applications/Cursor Watch.app`**；**不**走 Mac App Store，**不**以公证/上架为 v1 目标。仓库变更后以**一条打包命令**重建并覆盖安装（如 `package:app`）；不以挂载仓库源码热更为交付路径。
+_Avoid_: 首版就要求公证与分发流水线、把「非正式」理解成「不用 .app、继续只靠终端」、交付后仍依赖仓库内临时路径当日常入口、App 启动时挂载仓库热更当正式方案
 
 **Reminder acknowledgment（提醒确认）**:
 用户表示「看到了」：在面板打开该会话（或点确认），或点击对应系统通知。任一即可消掉收件箱中的该条 Reminder。
@@ -55,3 +71,7 @@ _Avoid_: 默认有声、产品永远静音且无开关
 **Focus policy（前台策略）**:
 不因 Cursor / 面板是否前台而压抑系统通知（多屏多 Cursor 窗口常同时前台）。降噪靠默认静音、Reminder 合并与系统勿扰。
 _Avoid_: 以「Cursor 在前台」作为不提醒条件
+
+**Menubar shell（菜单栏壳）**:
+用户期望的「装成一个 APP」形态：登录 Mac 后常驻；菜单栏入口托管 daemon，并用原生窗口（WKWebView）承载收件箱优先面板，而不是每次手动起服务再开浏览器。实现倾向：薄 Swift 壳，不重写面板；**交付形态内嵌 Node 运行时与 cursor-watch**，不依赖本机仓库路径或临时 `npx`。
+_Avoid_: 仅文档里写启动命令、把「打开浏览器」当成唯一日常入口、用 Electron 整包重做面板（除非另有决策）、交付后仍要求用户自备 Node/仓库

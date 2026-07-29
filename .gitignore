@@ -3,4 +3,5 @@
 node_modules/
 cursor-watch/node_modules/
 cursor-watch/dist/
+cursor-watch/macos/CursorWatch/dist/
 .DS_Store

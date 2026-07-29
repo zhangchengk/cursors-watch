@@ -48,6 +48,27 @@ cursor-watch open
 
 `npm link` / `npx` 都指向本仓库，不经过 registry。开发自检可用 `npm test`；热重载调试可用 `npm run dev`。
 
+### Menubar shell（非正式 App，推荐日常用法）
+
+不想每次手动 `npx cursor-watch open` 再开浏览器时，可打包菜单栏壳（内嵌 Node + cursor-watch，WKWebView 面板）：
+
+```bash
+cd Cursors/cursor-watch
+npm run package:app:install   # 构建并覆盖安装到 /Applications/Cursor Watch.app
+# 或只构建到 macos/CursorWatch/dist/：
+npm run package:app
+```
+
+安装后从「应用程序」打开 **Cursor Watch**：菜单栏出现 `CW`，会拉起 daemon、打开面板；菜单可开关「登录时打开」（默认开启）。Reminder 优先走壳的系统通知，失败则 HUD 浮层兜底。更新方式：再跑一遍 `package:app:install` 覆盖安装。不含 hooks 一键安装与自动更新。
+
+开发调试壳（不装到 Applications）可用：
+
+```bash
+CURSOR_WATCH_ROOT="$PWD" open "macos/CursorWatch/dist/Cursor Watch.app"
+```
+
+若 `7423` 已被其它 daemon 占用，壳会提示先停掉旧进程（`npx cursor-watch stop`），避免连错服务。
+
 ## 使用
 
 ```bash
