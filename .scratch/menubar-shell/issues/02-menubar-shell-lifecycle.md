@@ -1,6 +1,6 @@
 # 02 — Menubar shell 最小常驻：启停 daemon + 菜单栏 + WKWebView 面板
 
-**What to build:** 打开 Cursor Watch 壳后，菜单栏有图标；壳负责拉起 daemon；从菜单打开原生窗口即可看到现有 Inbox-first 面板；退出壳时 daemon 一并停下。用户不必再手动 `启动` 再开浏览器。
+**What to build:** 打开 Cursors Watch 壳后，菜单栏有图标；壳负责拉起 daemon；从菜单打开原生窗口即可看到现有 Inbox-first 面板；退出壳时 daemon 一并停下。用户不必再手动 `启动` 再开浏览器。
 
 **Blocked by:** None — can start immediately.
 

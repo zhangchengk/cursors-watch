@@ -32,9 +32,9 @@ enum CWConfig {
   }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, WKScriptMessageHandler {
   private var statusItem: NSStatusItem!
-  private var panel: NSPanel?
+  private var panel: NSWindow?
   private var webView: WKWebView?
   private var daemon: Process?
   private var notifyWatcher: DispatchSourceFileSystemObject?
@@ -45,8 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
   private var statusRefresh: Timer?
   /// true when we started the daemon process ourselves
   private var ownsDaemon = false
-  /// port was already open before we tried to start (foreign/shared)
+  /// port was already open and is not a cursor-watch API
   private var foreignPortAtLaunch = false
+  /// port was already open and answered as cursor-watch — reuse it
+  private var adoptedExistingDaemon = false
   /// Prefer this URL on next successful panel load (notification deep link).
   private var pendingPanelURL: URL?
 
@@ -84,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     if let button = statusItem.button {
       button.title = "CW"
-      button.toolTip = "Cursor Watch"
+      button.toolTip = "Cursors Watch"
       button.target = self
       button.action = #selector(statusItemClicked(_:))
       button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -108,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     statusMenu.addItem(openAtLoginMenuItem)
     statusMenu.addItem(NSMenuItem.separator())
     statusMenu.addItem(
-      NSMenuItem(title: "退出 Cursor Watch", action: #selector(quit), keyEquivalent: "q")
+      NSMenuItem(title: "退出 Cursors Watch", action: #selector(quit), keyEquivalent: "q")
     )
   }
 
@@ -133,10 +135,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
   private func refreshDaemonStatusMenu() {
     let up = isPortOpen()
-    if foreignPortAtLaunch && !ownsDaemon {
-      daemonStatusMenuItem.title = "daemon: 端口被占用（非本壳）"
+    if foreignPortAtLaunch && !ownsDaemon && !adoptedExistingDaemon {
+      daemonStatusMenuItem.title = "daemon: 端口被占用（非本服务）"
     } else if up {
-      daemonStatusMenuItem.title = ownsDaemon ? "daemon: 运行中" : "daemon: 运行中（外部）"
+      if ownsDaemon {
+        daemonStatusMenuItem.title = "daemon: 运行中"
+      } else if adoptedExistingDaemon {
+        daemonStatusMenuItem.title = "daemon: 运行中（已接管）"
+      } else {
+        daemonStatusMenuItem.title = "daemon: 运行中"
+      }
     } else {
       daemonStatusMenuItem.title = "daemon: 未运行"
     }
@@ -150,9 +158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     if let url { pendingPanelURL = url }
     if panel == nil { buildPanel() }
     guard let panel else { return }
-    if foreignPortAtLaunch && !ownsDaemon {
+    if foreignPortAtLaunch && !ownsDaemon && !adoptedExistingDaemon {
       loadErrorPage(
-        "端口 \(CWConfig.port) 已被其他进程占用。请先停止已有 cursor-watch daemon，再重新打开 Cursor Watch。"
+        "端口 \(CWConfig.port) 已被其他程序占用，且不是 Cursors Watch 服务。请结束该进程后重新打开。"
       )
       panel.makeKeyAndOrderFront(nil)
       NSApp.activate(ignoringOtherApps: true)
@@ -185,21 +193,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       width: width,
       height: height
     )
-    let panel = NSPanel(
+    // NSWindow (not NSPanel): HTML fullscreen is unreliable in WKWebView;
+    // the panel button bridges to native toggleFullScreen instead.
+    let panel = NSWindow(
       contentRect: rect,
       styleMask: [.titled, .closable, .resizable, .miniaturizable],
       backing: .buffered,
       defer: false
     )
-    panel.title = "Cursor Watch"
-    panel.isFloatingPanel = false
-    panel.hidesOnDeactivate = false
+    panel.title = "Cursors Watch"
+    panel.collectionBehavior = [.fullScreenPrimary, .managed]
+    panel.isReleasedWhenClosed = false
 
-    let webView = WKWebView(frame: panel.contentView!.bounds)
+    let config = WKWebViewConfiguration()
+    config.preferences.setValue(true, forKey: "fullScreenEnabled")
+    config.userContentController.add(self, name: "cursorWatch")
+    let webView = WKWebView(frame: panel.contentView!.bounds, configuration: config)
     webView.autoresizingMask = [.width, .height]
     panel.contentView?.addSubview(webView)
     self.panel = panel
     self.webView = webView
+
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowFullScreenChanged(_:)),
+      name: NSWindow.didEnterFullScreenNotification,
+      object: panel
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowFullScreenChanged(_:)),
+      name: NSWindow.didExitFullScreenNotification,
+      object: panel
+    )
+  }
+
+  func userContentController(
+    _ userContentController: WKUserContentController,
+    didReceive message: WKScriptMessage
+  ) {
+    guard message.name == "cursorWatch" else { return }
+    let type: String?
+    if let body = message.body as? [String: Any] {
+      type = body["type"] as? String
+    } else {
+      type = message.body as? String
+    }
+    if type == "toggleFullscreen" {
+      toggleNativeFullscreen()
+    } else if type == "queryFullscreen" {
+      pushFullscreenStateToWeb()
+    }
+  }
+
+  private func toggleNativeFullscreen() {
+    guard let panel else { return }
+    panel.toggleFullScreen(nil)
+  }
+
+  @objc private func windowFullScreenChanged(_ note: Notification) {
+    pushFullscreenStateToWeb()
+  }
+
+  private func pushFullscreenStateToWeb() {
+    let on = panel?.styleMask.contains(.fullScreen) == true
+    let js = "window.__cwSetFullscreen && window.__cwSetFullscreen(\(on ? "true" : "false"))"
+    webView?.evaluateJavaScript(js, completionHandler: nil)
   }
 
   private func loadErrorPage(_ message: String) {
@@ -208,14 +267,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       .replacingOccurrences(of: "<", with: "&lt;")
     let html =
       "<html><body style=\"font-family:-apple-system;padding:24px\">"
-      + "<h2>Cursor Watch</h2><p>\(escaped)</p></body></html>"
+      + "<h2>Cursors Watch</h2><p>\(escaped)</p></body></html>"
     webView?.loadHTMLString(html, baseURL: nil)
   }
 
   private func startDaemon() {
     if isPortOpen() {
+      if probeCursorWatchApi() {
+        adoptedExistingDaemon = true
+        log("adopting existing cursor-watch on port \(CWConfig.port)")
+        return
+      }
       foreignPortAtLaunch = true
-      log("port \(CWConfig.port) already open — not starting owned daemon")
+      log("port \(CWConfig.port) open but not cursor-watch API")
       return
     }
     guard let root = CWConfig.packageRoot else {
@@ -266,6 +330,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     } catch {
       log("daemon start failed: \(error)")
     }
+  }
+
+  /// True when localhost:port serves cursor-watch `/api/sessions`.
+  private func probeCursorWatchApi() -> Bool {
+    guard
+      let url = URL(string: "http://\(CWConfig.host):\(CWConfig.port)/api/sessions")
+    else { return false }
+    var request = URLRequest(url: url)
+    request.timeoutInterval = 1.5
+    let sem = DispatchSemaphore(value: 0)
+    var ok = false
+    URLSession.shared.dataTask(with: request) { _, resp, _ in
+      if let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+        ok = true
+      }
+      sem.signal()
+    }.resume()
+    _ = sem.wait(timeout: .now() + 2)
+    return ok
   }
 
   private func log(_ message: String) {
@@ -391,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         continue
       }
       try? fm.removeItem(at: url)
-      let title = obj["title"] as? String ?? "Cursor Watch"
+      let title = obj["title"] as? String ?? "Cursors Watch"
       let subtitle = obj["subtitle"] as? String ?? ""
       let body = obj["message"] as? String ?? ""
       let openUrl = obj["openUrl"] as? String
@@ -455,6 +538,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
   }
 
+  private var hudPanel: NSPanel?
+  private var hudHideWork: DispatchWorkItem?
+  private var hudOpenUrl: String?
+
   private func runHudFallback(
     title: String,
     subtitle: String,
@@ -462,33 +549,114 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     openUrl: String,
     sound: Bool
   ) {
-    let candidates = [
-      Bundle.main.resourceURL?
-        .appendingPathComponent(
-          "cursor-watch/vendor/mac/CursorWatchBanner.app/Contents/MacOS/CursorWatchBanner"
-        ).path,
-      CWConfig.packageRoot?
-        .appendingPathComponent(
-          "vendor/mac/CursorWatchBanner.app/Contents/MacOS/CursorWatchBanner"
-        ).path,
-    ].compactMap { $0 }
-    guard let bin = candidates.first(where: {
-      FileManager.default.isExecutableFile(atPath: $0)
-    }) else {
-      NSLog("[CursorWatch] HUD binary missing")
-      return
+    DispatchQueue.main.async { [weak self] in
+      self?.showNativeHud(
+        title: title,
+        subtitle: subtitle,
+        body: body,
+        openUrl: openUrl,
+        sound: sound
+      )
     }
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: bin)
-    p.arguments = [
-      title,
-      subtitle,
-      body,
-      openUrl,
-      "5",
-      sound ? "1" : "0",
-    ]
-    try? p.run()
+  }
+
+  private func showNativeHud(
+    title: String,
+    subtitle: String,
+    body: String,
+    openUrl: String,
+    sound: Bool
+  ) {
+    hudHideWork?.cancel()
+    hudPanel?.orderOut(nil)
+    hudPanel = nil
+    hudOpenUrl = openUrl
+
+    let screen = NSScreen.main?.visibleFrame
+      ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+    let width: CGFloat = 360
+    let height: CGFloat = 96
+    let margin: CGFloat = 16
+    let rect = NSRect(
+      x: screen.maxX - width - margin,
+      y: screen.maxY - height - margin,
+      width: width,
+      height: height
+    )
+
+    let panel = NSPanel(
+      contentRect: rect,
+      styleMask: [.borderless, .nonactivatingPanel],
+      backing: .buffered,
+      defer: false
+    )
+    panel.level = .statusBar
+    panel.isFloatingPanel = true
+    panel.hidesOnDeactivate = false
+    panel.hasShadow = true
+    panel.backgroundColor = .clear
+    panel.isOpaque = false
+    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+    let root = NSView(frame: NSRect(origin: .zero, size: rect.size))
+    root.wantsLayer = true
+    root.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 0.92).cgColor
+    root.layer?.cornerRadius = 12
+
+    let titleField = NSTextField(labelWithString: title)
+    titleField.font = .systemFont(ofSize: 13, weight: .semibold)
+    titleField.textColor = .white
+    titleField.frame = NSRect(x: 14, y: 58, width: width - 28, height: 18)
+
+    let subField = NSTextField(labelWithString: subtitle)
+    subField.font = .systemFont(ofSize: 12, weight: .medium)
+    subField.textColor = NSColor(calibratedWhite: 0.85, alpha: 1)
+    subField.frame = NSRect(x: 14, y: 38, width: width - 28, height: 16)
+
+    let bodyField = NSTextField(labelWithString: body)
+    bodyField.font = .systemFont(ofSize: 12)
+    bodyField.textColor = NSColor(calibratedWhite: 0.75, alpha: 1)
+    bodyField.frame = NSRect(x: 14, y: 14, width: width - 28, height: 20)
+    bodyField.lineBreakMode = .byTruncatingTail
+
+    root.addSubview(titleField)
+    if !subtitle.isEmpty { root.addSubview(subField) }
+    root.addSubview(bodyField)
+    panel.contentView = root
+
+    let click = NSClickGestureRecognizer(
+      target: self,
+      action: #selector(hudClicked)
+    )
+    root.addGestureRecognizer(click)
+
+    panel.orderFrontRegardless()
+    hudPanel = panel
+
+    if sound {
+      NSSound(named: "Glass")?.play()
+    }
+
+    let work = DispatchWorkItem { [weak self] in
+      self?.hudPanel?.orderOut(nil)
+      self?.hudPanel = nil
+      self?.hudOpenUrl = nil
+    }
+    hudHideWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+  }
+
+  @objc private func hudClicked() {
+    let openUrl = hudOpenUrl ?? CWConfig.panelURL.absoluteString
+    hudHideWork?.cancel()
+    hudPanel?.orderOut(nil)
+    hudPanel = nil
+    hudOpenUrl = nil
+    if let url = URL(string: openUrl) {
+      presentPanel(url: url)
+    } else {
+      presentPanel(url: nil)
+    }
   }
 
   func userNotificationCenter(

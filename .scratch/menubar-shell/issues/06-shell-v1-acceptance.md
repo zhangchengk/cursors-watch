@@ -8,7 +8,7 @@
 
 **Parent:** `.scratch/menubar-shell/issues/00-spec-menubar-shell-v1.md`
 
-- [x] 从 `/Applications/Cursor Watch.app` 冷启动走通：daemon + 面板 + 菜单退出
+- [x] 从 `/Applications/Cursors Watch.app` 冷启动走通：daemon + 面板 + 菜单退出
 - [x] Open at login 默认开、菜单可关，行为已手验
 - [x] Reminder 系统通知优先与 HUD 回退至少各验证一条路径
 - [x] 打包/覆盖安装命令在 README 或 package 脚本中可发现

@@ -8,9 +8,8 @@ import type { ReminderRecord } from "./types.js";
 /**
  * Reminder delivery (macOS):
  * - Prefer Menubar shell OS notification via ~/.cursor-watch/shell-notify
- *   when shell.alive heartbeat is fresh.
- * - Fallback: vendored CursorWatchBanner HUD, then terminal-notifier /
- *   osascript. HUD path uses notify-worker + durable notify-queue.
+ *   when shell.alive heartbeat is fresh. Shell draws native HUD if UN fails.
+ * - Without shell: terminal-notifier, then osascript (via notify-worker queue).
  */
 
 export type NotifyReminderOpts = {
@@ -42,7 +41,7 @@ export type ReminderDeliveryAdapter = {
   deliver: (intent: ReminderDeliveryIntent) => DeliveryResult;
 };
 
-const DEFAULT_TITLE = "Cursor Watch";
+const DEFAULT_TITLE = "Cursors Watch";
 const MAX_NOTIFY_BODY_CHARS = 160;
 const BANNER_LIFETIME_SECONDS = "5";
 /** Shell notify bridge directory under stateDir (Menubar shell listens). */
@@ -56,11 +55,8 @@ const workerPath = fileURLToPath(
 let worker: ChildProcess | null = null;
 
 export function resolveBannerBin(): string | null {
-  const bin = path.resolve(
-    here,
-    "../../vendor/mac/CursorWatchBanner.app/Contents/MacOS/CursorWatchBanner",
-  );
-  return existsSync(bin) ? bin : null;
+  // HUD is drawn by the Menubar shell; no separate Banner helper ships.
+  return null;
 }
 
 export function resolveTerminalNotifierBin(): string | null {
@@ -237,19 +233,10 @@ export function hudDeliveryAdapter(opts?: {
   return {
     name: "hud",
     deliver(intent) {
-      const bannerBin = resolveBannerBin();
+      // Shell-absent last resort only. Preferred HUD is native in Menubar shell.
       const tnBin = resolveTerminalNotifierBin();
       let argv: string[];
-      if (bannerBin) {
-        argv = buildBannerArgv({
-          bin: bannerBin,
-          title: intent.title,
-          subtitle: intent.subtitle,
-          message: intent.message,
-          openUrl: intent.openUrl,
-          sound: intent.sound,
-        });
-      } else if (tnBin) {
+      if (tnBin) {
         argv = buildTerminalNotifierArgv({
           bin: tnBin,
           title: intent.title,
@@ -260,7 +247,6 @@ export function hudDeliveryAdapter(opts?: {
           sound: intent.sound,
         });
       } else {
-        console.error("[cursor-watch] banner helpers missing");
         const script = buildDisplayNotificationScript({
           title: intent.title,
           body: intent.message,

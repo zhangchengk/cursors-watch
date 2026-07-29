@@ -35,7 +35,7 @@ describe("buildDeliveryIntent", () => {
     });
     expect(intent.conversationId).toBe("conv-42");
     expect(intent.notifyId).toBe("cursor-watch-reminder-conv-42");
-    expect(intent.title).toBe("Cursor Watch");
+    expect(intent.title).toBe("Cursors Watch");
     expect(intent.subtitle).toBe("My Chat");
     expect(intent.message).toContain("turn ended");
     expect(intent.openUrl).toContain("conversationId=conv-42");

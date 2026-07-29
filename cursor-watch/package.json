@@ -13,7 +13,8 @@
     "start": "node --import tsx src/cli.ts",
     "dev": "node --import tsx --watch src/cli.ts open",
     "package:app": "bash scripts/package-app.sh",
-    "package:app:install": "bash scripts/package-app.sh install"
+    "package:app:install": "bash scripts/package-app.sh install",
+    "package:dmg": "bash scripts/package-dmg.sh"
   },
   "engines": {
     "node": ">=20"

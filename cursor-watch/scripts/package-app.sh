@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Build informal Cursor Watch.app and optionally install to /Applications.
+# Build informal Cursors Watch.app and optionally install to /Applications.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MACOS_DIR="$ROOT/macos/CursorWatch"
 SRC="$MACOS_DIR/Sources/main.swift"
 DIST="$MACOS_DIR/dist"
-APP="$DIST/Cursor Watch.app"
+APP="$DIST/Cursors Watch.app"
 BIN_DIR="$APP/Contents/MacOS"
 RES_DIR="$APP/Contents/Resources"
-INSTALL_TO="${INSTALL_TO:-/Applications/Cursor Watch.app}"
+INSTALL_TO="${INSTALL_TO:-/Applications/Cursors Watch.app}"
 DO_INSTALL="${1:-}"
 
 mkdir -p "$BIN_DIR" "$RES_DIR"
@@ -26,13 +26,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>Cursor Watch</string>
+  <string>Cursors Watch</string>
   <key>CFBundleIdentifier</key>
   <string>com.cursor-watch.app</string>
   <key>CFBundleName</key>
-  <string>Cursor Watch</string>
+  <string>Cursors Watch</string>
   <key>CFBundleDisplayName</key>
-  <string>Cursor Watch</string>
+  <string>Cursors Watch</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -46,18 +46,20 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSUserNotificationUsageDescription</key>
-  <string>Cursor Watch needs notifications for Reminder delivery.</string>
+  <string>Cursors Watch needs notifications for Reminder delivery.</string>
 </dict>
 </plist>
 PLIST
 echo -n 'APPL????' > "$APP/Contents/PkgInfo"
-mv "$TMP_BIN" "$BIN_DIR/Cursor Watch"
-chmod +x "$BIN_DIR/Cursor Watch"
+mv "$TMP_BIN" "$BIN_DIR/Cursors Watch"
+chmod +x "$BIN_DIR/Cursors Watch"
 
 # Bundle cursor-watch package (dev copy; node binary optional)
 rsync -a --delete \
   --exclude node_modules \
   --exclude macos/CursorWatch/dist \
+  --exclude 'vendor/mac/*.app' \
+  --exclude 'vendor/mac/_bundles' \
   --exclude '.git' \
   "$ROOT/" "$RES_DIR/cursor-watch/"
 # Keep node_modules for tsx/runtime deps
@@ -67,7 +69,7 @@ fi
 # Prefer system node via PATH when not embedding; copy real binary if available
 NODE_BIN="$(node -p 'process.execPath' 2>/dev/null || true)"
 if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
-  echo "error: Node.js >= 20 required to embed runtime into Cursor Watch.app" >&2
+  echo "error: Node.js >= 20 required to embed runtime into Cursors Watch.app" >&2
   exit 1
 fi
 rm -f "$RES_DIR/node"
@@ -81,10 +83,31 @@ codesign --force --deep --sign - "$APP" 2>&1 | tail -5
 
 echo "Built: $APP"
 
+LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
 if [ "$DO_INSTALL" = "install" ]; then
+  OLD_INSTALL="/Applications/Cursor Watch.app"
+  if [ -d "$OLD_INSTALL" ]; then
+    rm -rf "$OLD_INSTALL"
+    if [ -x "$LSREG" ]; then
+      "$LSREG" -u "$OLD_INSTALL" 2>/dev/null || true
+    fi
+    echo "Removed old: $OLD_INSTALL"
+  fi
   rm -rf "$INSTALL_TO"
   ditto "$APP" "$INSTALL_TO"
   xattr -cr "$INSTALL_TO" 2>/dev/null || true
   codesign --force --deep --sign - "$INSTALL_TO" 2>&1 | tail -5
   echo "Installed: $INSTALL_TO"
+
+  # Drop local dist copy so Open/Spotlight only see /Applications
+  rm -rf "$APP"
+
+  if [ -x "$LSREG" ]; then
+    "$LSREG" -u "$APP" 2>/dev/null || true
+    "$LSREG" -u "$ROOT/vendor/mac/terminal-notifier.app" 2>/dev/null || true
+    # Rebuild user Launch Services domain so stale duplicates disappear
+    "$LSREG" -kill -r -domain user 2>/dev/null || true
+    "$LSREG" -f "$INSTALL_TO" 2>/dev/null || true
+  fi
 fi
