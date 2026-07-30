@@ -119,7 +119,7 @@ describe("buildServer", () => {
   it("GET / serves index", async () => {
     const res = await app.inject({ method: "GET", url: "/" });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatch(/态势面板|Cursor Agent/);
+    expect(res.body).toMatch(/Cursors Watch/);
   });
 
   it("POST /api/open-workspace rejects unknown path", async () => {

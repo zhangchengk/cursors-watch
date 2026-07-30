@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,12 +6,10 @@ import { stateDir } from "../constants.js";
 import type { ReminderRecord } from "./types.js";
 
 /**
- * macOS delivery:
- * - Prefer vendored CursorWatchBanner HUD (top-right panel). Notification Center
- *   banners are often denied / invisible for unsigned helpers on modern macOS.
- * - Fallback: terminal-notifier, then osascript display notification.
- * - Delivery goes through notify-worker (clean FDs) via IPC + durable queue
- *   (~/.cursor-watch/notify-queue) so lost IPC after long daemon uptime still fires.
+ * Reminder delivery (macOS):
+ * - Prefer Menubar shell OS notification via ~/.cursor-watch/shell-notify
+ *   when shell.alive heartbeat is fresh. Shell draws native HUD if UN fails.
+ * - Without shell: terminal-notifier, then osascript (via notify-worker queue).
  */
 
 export type NotifyReminderOpts = {
@@ -19,11 +17,35 @@ export type NotifyReminderOpts = {
   sound: boolean;
   panelUrl: string;
   run?: (argv: string[]) => void;
+  /** Prefer/fallback delivery adapters (shell → hud). */
+  adapters?: ReminderDeliveryAdapter[];
 };
 
-const DEFAULT_TITLE = "Cursor Watch";
+export type ReminderDeliveryIntent = {
+  title: string;
+  subtitle?: string;
+  message: string;
+  openUrl: string;
+  group: string;
+  sound: boolean;
+  conversationId: string;
+  notifyId: string;
+};
+
+export type DeliveryResult =
+  | { ok: true; channel: "shell" | "hud" }
+  | { ok: false; channel: "shell" | "hud" | "none" };
+
+export type ReminderDeliveryAdapter = {
+  name: "shell" | "hud" | string;
+  deliver: (intent: ReminderDeliveryIntent) => DeliveryResult;
+};
+
+const DEFAULT_TITLE = "Cursors Watch";
 const MAX_NOTIFY_BODY_CHARS = 160;
 const BANNER_LIFETIME_SECONDS = "5";
+/** Shell notify bridge directory under stateDir (Menubar shell listens). */
+export const SHELL_NOTIFY_DIR_NAME = "shell-notify";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workerPath = fileURLToPath(
@@ -33,11 +55,8 @@ const workerPath = fileURLToPath(
 let worker: ChildProcess | null = null;
 
 export function resolveBannerBin(): string | null {
-  const bin = path.resolve(
-    here,
-    "../../vendor/mac/CursorWatchBanner.app/Contents/MacOS/CursorWatchBanner",
-  );
-  return existsSync(bin) ? bin : null;
+  // HUD is drawn by the Menubar shell; no separate Banner helper ships.
+  return null;
 }
 
 export function resolveTerminalNotifierBin(): string | null {
@@ -140,6 +159,146 @@ export function notifyQueueDir(homeDir = stateDir()): string {
   return path.join(homeDir, "notify-queue");
 }
 
+export function shellNotifyDir(homeDir = stateDir()): string {
+  return path.join(homeDir, SHELL_NOTIFY_DIR_NAME);
+}
+
+export function buildDeliveryIntent(
+  opts: Pick<NotifyReminderOpts, "record" | "sound" | "panelUrl">,
+): ReminderDeliveryIntent {
+  const chatName = opts.record.chatName?.trim();
+  const subtitle = chatName
+    ? truncateNotifyText(chatName, 80)
+    : undefined;
+  const message = truncateNotifyText(
+    opts.record.summary?.trim() || "本轮结束",
+    120,
+  );
+  return {
+    title: DEFAULT_TITLE,
+    subtitle,
+    message,
+    openUrl: buildReminderDeepLink(
+      opts.panelUrl,
+      opts.record.conversationId,
+    ),
+    group: opts.record.notifyId,
+    sound: opts.sound,
+    conversationId: opts.record.conversationId,
+    notifyId: opts.record.notifyId,
+  };
+}
+
+/**
+ * Try shell bridge first: write intent JSON for Menubar shell.
+ * Returns ok only when a shell lock/heartbeat file is present (shell running).
+ */
+export function shellDeliveryAdapter(
+  homeDir = stateDir(),
+  opts?: { maxAliveAgeMs?: number; now?: () => number },
+): ReminderDeliveryAdapter {
+  const maxAge = opts?.maxAliveAgeMs ?? 90_000;
+  const now = opts?.now ?? Date.now;
+  return {
+    name: "shell",
+    deliver(intent) {
+      const alive = path.join(shellNotifyDir(homeDir), "shell.alive");
+      if (!existsSync(alive)) {
+        return { ok: false, channel: "shell" };
+      }
+      try {
+        const age = now() - statSync(alive).mtimeMs;
+        if (age > maxAge) {
+          return { ok: false, channel: "shell" };
+        }
+        const dir = shellNotifyDir(homeDir);
+        mkdirSync(dir, { recursive: true });
+        const file = path.join(
+          dir,
+          `${Date.now()}-${intent.notifyId}.json`,
+        );
+        writeFileSync(file, `${JSON.stringify(intent)}\n`, "utf8");
+        return { ok: true, channel: "shell" };
+      } catch (err) {
+        console.error("[cursor-watch] shell notify enqueue failed", err);
+        return { ok: false, channel: "shell" };
+      }
+    },
+  };
+}
+
+export function hudDeliveryAdapter(opts?: {
+  run?: (argv: string[]) => void;
+}): ReminderDeliveryAdapter {
+  return {
+    name: "hud",
+    deliver(intent) {
+      // Shell-absent last resort only. Preferred HUD is native in Menubar shell.
+      const tnBin = resolveTerminalNotifierBin();
+      let argv: string[];
+      if (tnBin) {
+        argv = buildTerminalNotifierArgv({
+          bin: tnBin,
+          title: intent.title,
+          subtitle: intent.subtitle,
+          message: intent.message,
+          group: intent.group,
+          openUrl: intent.openUrl,
+          sound: intent.sound,
+        });
+      } else {
+        const script = buildDisplayNotificationScript({
+          title: intent.title,
+          body: intent.message,
+          subtitle: intent.subtitle || intent.title,
+          sound: intent.sound,
+        });
+        argv = ["/usr/bin/osascript", "-e", script];
+      }
+
+      if (opts?.run) {
+        try {
+          opts.run(argv);
+          return { ok: true, channel: "hud" };
+        } catch (err) {
+          console.error("[cursor-watch] hud run failed", err);
+          return { ok: false, channel: "hud" };
+        }
+      }
+
+      try {
+        enqueueNotifyArgv(argv);
+      } catch (err) {
+        console.error("[cursor-watch] notify enqueue failed", err);
+        return { ok: false, channel: "hud" };
+      }
+      if (!sendViaWorker({ type: "drain" })) {
+        startNotifyWorker();
+        sendViaWorker({ type: "drain" });
+      }
+      return { ok: true, channel: "hud" };
+    },
+  };
+}
+
+export function deliverReminder(opts: {
+  intent: ReminderDeliveryIntent;
+  adapters: ReminderDeliveryAdapter[];
+}): DeliveryResult {
+  for (const adapter of opts.adapters) {
+    try {
+      const result = adapter.deliver(opts.intent);
+      if (result.ok) return result;
+    } catch (err) {
+      console.error(
+        `[cursor-watch] delivery adapter ${adapter.name} threw`,
+        err,
+      );
+    }
+  }
+  return { ok: false, channel: "none" };
+}
+
 /** Durable handoff so delivery survives dead IPC / daemon FD exhaustion. */
 export function enqueueNotifyArgv(argv: string[], homeDir = stateDir()): string {
   const dir = notifyQueueDir(homeDir);
@@ -207,68 +366,9 @@ function sendViaWorker(msg: Record<string, unknown>): boolean {
 }
 
 export function notifyReminder(opts: NotifyReminderOpts): void {
-  const chatName = opts.record.chatName?.trim();
-  const subtitle = chatName
-    ? truncateNotifyText(chatName, 80)
-    : undefined;
-  const message = truncateNotifyText(
-    opts.record.summary?.trim() || "本轮结束",
-    120,
-  );
-  const openUrl = buildReminderDeepLink(
-    opts.panelUrl,
-    opts.record.conversationId,
-  );
-  const group = opts.record.notifyId;
-
-  const bannerBin = resolveBannerBin();
-  const tnBin = resolveTerminalNotifierBin();
-  let argv: string[];
-  if (bannerBin) {
-    argv = buildBannerArgv({
-      bin: bannerBin,
-      title: DEFAULT_TITLE,
-      subtitle,
-      message,
-      openUrl,
-      sound: opts.sound,
-    });
-  } else if (tnBin) {
-    argv = buildTerminalNotifierArgv({
-      bin: tnBin,
-      title: DEFAULT_TITLE,
-      subtitle,
-      message,
-      group,
-      openUrl,
-      sound: opts.sound,
-    });
-  } else {
-    console.error("[cursor-watch] banner helpers missing");
-    const script = buildDisplayNotificationScript({
-      title: DEFAULT_TITLE,
-      body: message,
-      subtitle: subtitle || DEFAULT_TITLE,
-      sound: opts.sound,
-    });
-    argv = ["/usr/bin/osascript", "-e", script];
-  }
-
-  if (opts.run) {
-    opts.run(argv);
-    return;
-  }
-
-  // Always enqueue first — worker drains the queue even if IPC is dead.
-  try {
-    enqueueNotifyArgv(argv);
-  } catch (err) {
-    console.error("[cursor-watch] notify enqueue failed", err);
-  }
-
-  if (sendViaWorker({ type: "drain" })) return;
-
-  // IPC dead after long uptime / EBADF: restart sidecar and nudge drain.
-  startNotifyWorker();
-  sendViaWorker({ type: "drain" });
+  const intent = buildDeliveryIntent(opts);
+  const adapters =
+    opts.adapters ??
+    [shellDeliveryAdapter(), hudDeliveryAdapter({ run: opts.run })];
+  deliverReminder({ intent, adapters });
 }

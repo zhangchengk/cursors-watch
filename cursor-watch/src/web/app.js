@@ -511,7 +511,14 @@ function escapeHtml(s) {
     .replaceAll('"', "&quot;");
 }
 
+let shellFullscreen = false;
+
+function hasNativeShell() {
+  return Boolean(window.webkit?.messageHandlers?.cursorWatch);
+}
+
 function isFullscreen() {
+  if (hasNativeShell()) return shellFullscreen;
   return Boolean(document.fullscreenElement);
 }
 
@@ -525,6 +532,16 @@ function syncFullscreenBtn() {
 }
 
 async function toggleFullscreen() {
+  if (hasNativeShell()) {
+    try {
+      window.webkit.messageHandlers.cursorWatch.postMessage({
+        type: "toggleFullscreen",
+      });
+    } catch (err) {
+      console.error("[cursor-watch] native fullscreen failed", err);
+    }
+    return;
+  }
   try {
     if (isFullscreen()) {
       await document.exitFullscreen();
@@ -549,6 +566,19 @@ function bindFullscreen() {
     ev.preventDefault();
     void toggleFullscreen();
   });
+  window.__cwSetFullscreen = (on) => {
+    shellFullscreen = Boolean(on);
+    syncFullscreenBtn();
+  };
+  if (hasNativeShell()) {
+    try {
+      window.webkit.messageHandlers.cursorWatch.postMessage({
+        type: "queryFullscreen",
+      });
+    } catch {
+      /* ignore */
+    }
+  }
   syncFullscreenBtn();
 }
 
