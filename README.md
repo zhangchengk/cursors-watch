@@ -2,19 +2,19 @@
 
 [English](./README.en.md)
 
-本机 **多个 Cursor Agent 会话** 的 Reminder 工具（包名仍为 `cursor-watch`）：会话 **Turn end** 时用系统通知 / HUD 叫你，并在收件箱留下待确认项；顺带可看哪些会话在跑、哪些在等你。
+Cursors Watch 盯的是本机多个 Cursor Agent 会话（npm 包名仍是 `cursor-watch`）。某次对话 Turn end 时，它用系统通知或 HUD 打断你，并在面板收件箱留下一条待确认；下方「运行中」列出当前还在跑的会话。
 
-完成提醒依赖可选 **hooks**（`hooks install`）；未安装则不发系统 Reminder，仅提示安装。Active `/loop` 期间 hooks 的 `stop` 不算结束，不会误报。面板可 **打开对应工作区文件夹**（唤起本机 Cursor），但 **不会** 跳到某个具体 Agent/chat，也 **不会** 修改、注入或调度会话。
+发 Reminder 要先装可选 hooks（`hooks install`）。没装就不会发系统提醒，面板只提示去安装。会话仍处在 Active `/loop` 时，hooks 打出的 `stop` 不算结束，避免误报。面板可以打开该会话对应的工作区文件夹（唤起本机 Cursor），但定位不到具体某个 Agent/chat，也不会改会话内容或替你调度。
 
-它不是任务中枢、不是远程监控，也不替代 Cursor 侧边栏。数据只读自本机 Cursor 目录（详见后文）；**仅支持 macOS**。面板仅监听 localhost，展示路径与消息摘录原文、不做脱敏——请勿把端口暴露到公网。
+它不是任务中枢或远程监控，也不能替代 Cursor 侧边栏。数据只读本机 Cursor 目录（见后文），且仅支持 macOS。服务只绑 localhost，路径和消息摘录按原文展示、不做脱敏，所以不要把端口暴露到公网。
 
 ## 截图
 
-在 Cursor 里写代码时，**Cursors Watch** 用系统通知 / HUD 打断你（无需切到浏览器）：
+在 Cursor 里写代码时，Cursors Watch 用系统通知 / HUD 打断你（不必切到浏览器）：
 
 ![在 Cursor 中工作时收到 Cursors Watch 提醒](./docs/images/Cursors1.png)
 
-全屏面板：上方 **待确认 Reminder** 收件箱，下方 **运行中** 会话；顶栏可调列数、看状态计数、开关声音与全屏：
+全屏面板：上方「待确认 Reminder」收件箱，下方「运行中」会话；顶栏可调列数、看状态计数、开关声音与全屏：
 
 ![Cursors Watch 面板：Reminder 收件箱与运行中会话](./docs/images/Cursors2.png)
 
@@ -31,8 +31,8 @@
 日常用法是安装非正式 App **Cursors Watch**（菜单栏 `CW`），不必每次 `npx` 再开浏览器。
 
 ```bash
-git clone git@github.com:zhangchengk/Cursors.git
-cd Cursors/cursor-watch
+git clone git@github.com:zhangchengk/cursors-watch.git
+cd cursors-watch/cursor-watch
 npm install
 npm run package:dmg           # 生成 .dmg
 # 或本机直接覆盖安装：
@@ -53,7 +53,7 @@ npm run package:app:install   # → /Applications/Cursors Watch.app
 本包为私有仓库工具，**不能**从 npm registry 安装；也**不要**执行 `npm i -g cursor-watch`。
 
 ```bash
-cd Cursors/cursor-watch
+cd cursors-watch/cursor-watch
 npx cursor-watch open     # 按需拉起 daemon，并用浏览器打开面板
 npx cursor-watch status
 npx cursor-watch stop
@@ -76,17 +76,16 @@ npx cursor-watch hooks status
 npx cursor-watch hooks uninstall
 ```
 
-不安装也可看面板：「在跑 / 等待」主要靠 transcript 与 terminals，可能略滞后。安装后多一路 LIVE 快照，可触发 **Reminder**（通知 + 收件箱），并显示迷你滚动与更准的「在跑」——**仍非毫秒级遥测**。Active `/loop` 的 tick 间隙 `stop` 会被压制。hooks 失败不影响 Cursor 本身。
+不安装也可看面板：「在跑」主要靠 transcript 与 terminals 推断，可能略滞后。装上 hooks 后多一路 LIVE 快照，才能触发 Reminder（通知 + 收件箱），「在跑」也更准，但仍不是毫秒级遥测。Active `/loop` 哨兵还在时，tick 间隙的 `stop` 会被压制。hooks 失败不影响 Cursor 本身。
 
 ## 面板怎么读
 
-- 顶栏产品名 **Cursors Watch**；可调注意力列数（默认 2）、状态色点计数、**声音**、**全屏**（`F`；在 App 内走系统全屏）。
-- 主区 **待确认 Reminder**：Turn end 等需要你看的项；可单条 **确认** 或 **全部确认**。点 ↗ 打开工作区文件夹（不定位到某个 chat）。
-- **运行中**：当前 LIVE / 进行中的会话卡片。
-- 可切换 **注意力** / **按工程**；窄屏注意力强制 1 列。
-- **保留策略**（服务端）：未读一直保留；进行中始终可见；已读且「本轮结束」约 **30 分钟**；纯 idle 约 **15 分钟**。
-- 色点：运行中、等待查看、子任务、空闲/已读、出错。
-- 卡片标题优先用侧边栏 chat 名；否则回退首条用户消息摘要。
+- 顶栏是 Cursors Watch；可调卡片列数（默认 2，窄屏 <720px 强制 1 列）、状态色点计数、声音（默认静音）、全屏（`F`；App 内走系统全屏）。
+- 上方「待确认 Reminder」：Turn end 后需要你看的项。未装 hooks 时这里提示安装命令。可单条确认或全部确认；点通知也可确认。↗ 只打开工作区文件夹，不定位到某个 chat。
+- 下方「运行中」：只列 LIVE / `running` / `subagent` 的会话卡片。
+- 服务端保留策略仍作用于会话快照：未读一直保留；进行中始终可见；已读且本轮结束约 30 分钟；纯 idle 约 15 分钟。
+- 顶栏色点统计全部会话（含未在「运行中」列出的 waiting / idle / error）。
+- 卡片标题优先用侧边栏 chat 名，否则用首条用户消息摘要。
 
 ## 架构鸟瞰
 
@@ -141,9 +140,10 @@ Cursors Watch.app（菜单栏壳）
 | `aggregator.ts` | 子会话并入父会话；过滤不可见会话 |
 | `infer/status.ts` | 由 transcript + shell 推断 `AgentStatus` |
 | `live-state.ts` / `reminders/*` | LIVE、Turn end Reminder、通知适配器 |
+| `loop-ledger/*` | Active `/loop` 哨兵账本（压制误报） |
 | `open-workspace.ts` | 校验路径后 `open -a Cursor <path>` |
 | `server.ts` | 静态资源、`/api/*`、`/ws` |
-| `web/*` | 面板 UI（收件箱 + 运行中） |
+| `web/*` | 收件箱优先面板（待确认 + 运行中） |
 | `macos/CursorWatch` + `scripts/package-*.sh` | 菜单栏壳、`.app` / `.dmg` 打包 |
 
 ### 数据源
@@ -185,9 +185,11 @@ Cursors Watch.app（菜单栏壳）
 |---|---|
 | `GET /api/health` | `{ ok: true }` |
 | `GET /api/sessions` | 当前 `SessionState[]` |
-| `GET /api/reminders` | Reminder 收件箱 |
+| `GET /api/reminders` | 待确认 Reminder 列表 |
+| `POST /api/reminders/:conversationId/ack` | 确认一条 Reminder |
+| `GET /api/hooks-status` | hooks 是否已安装 |
 | `POST /api/open-workspace` | body `{ path }` |
-| `GET /ws` | `sessions` / `reminders` 推送 |
+| `GET /ws` | 推送 `sessions` / `reminders` |
 
 ### Hooks
 

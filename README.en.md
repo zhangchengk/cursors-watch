@@ -2,11 +2,11 @@
 
 [中文](./README.md)
 
-**Cursors Watch** watches **multiple local Cursor Agent sessions** (npm package name remains `cursor-watch`). On **Turn end** it interrupts you with an OS notification / HUD and keeps an inbox item to acknowledge — and you can still see which sessions are running or waiting.
+Cursors Watch watches multiple local Cursor Agent sessions (npm package name remains `cursor-watch`). On Turn end it interrupts you with an OS notification or HUD, leaves one pending item in the panel inbox, and lists currently running sessions below.
 
-Reminders need optional **hooks** (`hooks install`); without them there is no OS Reminder, only an install prompt. During an active `/loop`, hooks `stop` events are not treated as turn end (no false alarms). From the panel you can **open the matching workspace folder** in Cursor on this Mac — it does **not** deep-link into a specific Agent/chat, and it does **not** modify, inject, or orchestrate sessions.
+Reminders need optional hooks (`hooks install`). Without them there is no OS Reminder, only an install prompt on the panel. While an Active `/loop` sentinel is still alive, hooks `stop` events are not treated as turn end, so you do not get false alarms. From the panel you can open the matching workspace folder in Cursor on this Mac. It does not deep-link into a specific Agent/chat, and it does not modify session content or orchestrate work for you.
 
-It is not a task hub, not remote monitoring, and not a replacement for Cursor’s sidebar. It only reads local Cursor data (see below). **macOS only**. The server binds to localhost and shows paths and message excerpts in the clear (no redaction) — do not expose the port to the network.
+It is not a task hub or remote monitoring tool, and it does not replace Cursor's sidebar. It only reads local Cursor data (see below), and it is macOS only. The server binds to localhost and shows paths and message excerpts in the clear with no redaction, so do not expose the port to the network.
 
 ## Screenshots
 
@@ -28,11 +28,11 @@ Full panel: **Pending Reminder** inbox on top, **Running** sessions below; top b
 
 ## Install (recommended: menubar App)
 
-Daily use is the informal **Cursors Watch** app (menu bar `CW`) — no need to `npx` and open a browser every time.
+Daily use is the informal **Cursors Watch** app (menu bar `CW`). You do not need to `npx` and open a browser every time.
 
 ```bash
-git clone git@github.com:zhangchengk/Cursors.git
-cd Cursors/cursor-watch
+git clone git@github.com:zhangchengk/cursors-watch.git
+cd cursors-watch/cursor-watch
 npm install
 npm run package:dmg           # build a .dmg
 # or install straight to Applications:
@@ -50,10 +50,10 @@ User-facing name is **Cursors Watch**; technical ids stay `cursor-watch` / `com.
 
 ### Dev / CLI (optional)
 
-This tool ships in a private repo — it is **not** on the npm registry. Do **not** run `npm i -g cursor-watch`.
+This tool ships in a private repo. It is **not** on the npm registry. Do **not** run `npm i -g cursor-watch`.
 
 ```bash
-cd Cursors/cursor-watch
+cd cursors-watch/cursor-watch
 npx cursor-watch open     # start daemon if needed, open panel in a browser
 npx cursor-watch status
 npx cursor-watch stop
@@ -76,16 +76,15 @@ npx cursor-watch hooks status
 npx cursor-watch hooks uninstall
 ```
 
-The panel works without hooks: “running / waiting” then come mainly from transcripts and terminals, and may lag. With hooks you get LIVE snapshots, **Reminders** (notify + inbox), a mini marquee, and sharper “running” detection — still **not** millisecond telemetry. Active `/loop` tick-gap `stop` events are suppressed. Hook failures do not break Cursor.
+The panel works without hooks: “running” then comes mainly from transcripts and terminals, and may lag. With hooks you get LIVE snapshots, which enable Reminders (notify + inbox) and sharper “running” detection, still not millisecond telemetry. While an Active `/loop` sentinel is alive, tick-gap `stop` events are suppressed. Hook failures do not break Cursor.
 
 ## Reading the panel
 
-- Top bar brand **Cursors Watch**; column stepper, status color counts, **Sound**, **Fullscreen** (`F`; native fullscreen inside the App).
-- **Pending Reminder**: Turn end items that need your eyes; per-card **Confirm** or **Confirm all**. ↗ opens the workspace folder (not a specific chat).
-- **Running**: LIVE / in-progress session cards.
-- Switch **Attention** / **By project**; narrow viewports force 1 Attention column.
-- **Retention** (server): unread kept; in-progress always visible; read + turn-ended ~**30 minutes**; pure idle ~**15 minutes**.
-- Dots: running, waiting, subagent, idle/read, error.
+- Top bar brand Cursors Watch; column stepper (default 2; viewports under 720px force 1 column), status color counts, Sound (muted by default), Fullscreen (`F`; native fullscreen inside the App).
+- **Pending Reminder** on top: Turn end items that need your eyes. Without hooks this area shows the install command. Per-card Confirm or Confirm all; clicking the OS notification can also ack. ↗ opens the workspace folder only (not a specific chat).
+- **Running** below: only LIVE / `running` / `subagent` session cards.
+- Server retention still applies to the session snapshot: unread kept; in-progress always visible; read + turn-ended ~30 minutes; pure idle ~15 minutes.
+- Top-bar dots count all sessions (including waiting / idle / error not listed under Running).
 - Card titles prefer the Agent sidebar chat name; else the first user-message summary.
 
 ## Architecture overview
@@ -121,7 +120,7 @@ Flow:
 ## Trust boundary
 
 - HTTP/WebSocket bind to **`127.0.0.1` only** (default port `7423`).
-- The panel shows workspace paths and message snippets **in the clear** — no redaction.
+- The panel shows workspace paths and message snippets **in the clear**, with no redaction.
 - Do **not** expose the port to the internet or reverse-proxy it to other people.
 - **Read-only scope**: scanning `~/.cursor/projects` and `composerHeaders` never writes session content back.
 - **Write exception**: only `hooks install` writes `~/.cursor/hooks.json`, `~/.cursor/hooks/`, and runtime `~/.cursor-watch/live`.
@@ -141,9 +140,10 @@ Flow:
 | `aggregator.ts` | fold child sessions; filter what the panel should show |
 | `infer/status.ts` | derive `AgentStatus` from transcript + shell |
 | `live-state.ts` / `reminders/*` | LIVE, Turn end Reminder, delivery adapters |
+| `loop-ledger/*` | Active `/loop` sentinel ledger (suppress false alarms) |
 | `open-workspace.ts` | path allow-list, then `open -a Cursor <path>` |
 | `server.ts` | static UI, `/api/*`, `/ws` |
-| `web/*` | panel UI (inbox + running) |
+| `web/*` | inbox-first panel (pending + running) |
 | `macos/CursorWatch` + `scripts/package-*.sh` | menubar shell, `.app` / `.dmg` packaging |
 
 ### Data sources
@@ -185,7 +185,9 @@ Transcripts older than **7 days** by mtime are skipped (`SCAN_LOOKBACK_MS`).
 |---|---|
 | `GET /api/health` | `{ ok: true }` |
 | `GET /api/sessions` | current `SessionState[]` |
-| `GET /api/reminders` | Reminder inbox |
+| `GET /api/reminders` | pending Reminder list |
+| `POST /api/reminders/:conversationId/ack` | acknowledge one Reminder |
+| `GET /api/hooks-status` | whether hooks are installed |
 | `POST /api/open-workspace` | body `{ path }` |
 | `GET /ws` | `sessions` / `reminders` push |
 
