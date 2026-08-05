@@ -43,10 +43,49 @@ export type FocusProbeDeps = {
   confirmVisualFocus?: () => Promise<boolean>;
 };
 
-/** Task 3 fills this in; Task 2 ships empty attempts. */
 export async function probeFocusByConversationId(
-  _conversationId: string,
-  _deps: FocusProbeDeps,
+  conversationId: string,
+  deps: FocusProbeDeps,
 ): Promise<ProbeAttempt[]> {
-  return [];
+  const attempts: ProbeAttempt[] = [];
+  const interesting = await listInterestingCommands(deps.getCommands);
+  const commands = preferredFocusCommands(interesting);
+  deps.log(`Interesting commands: ${interesting.length}; trying ${commands.length}`);
+
+  const shapes: Array<{ label: string; args: unknown[] }> = [
+    { label: "string", args: [conversationId] },
+    { label: "{composerId}", args: [{ composerId: conversationId }] },
+    { label: "{conversationId}", args: [{ conversationId }] },
+    { label: "{id}", args: [{ id: conversationId }] },
+  ];
+
+  const confirm = deps.confirmVisualFocus ?? (async () => false);
+
+  for (const command of commands) {
+    for (const shape of shapes) {
+      const detailBase = `${command} ${shape.label}`;
+      try {
+        deps.log(`try ${detailBase}`);
+        await deps.executeCommand(command, ...shape.args);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        attempts.push({
+          strategy: "command",
+          ok: false,
+          detail: `${detailBase} threw: ${msg}`,
+        });
+        continue;
+      }
+
+      const visualOk = await confirm();
+      attempts.push({
+        strategy: "command",
+        ok: visualOk,
+        detail: `${detailBase} no-throw; visual=${visualOk}`,
+      });
+      if (visualOk) return attempts;
+    }
+  }
+
+  return attempts;
 }
