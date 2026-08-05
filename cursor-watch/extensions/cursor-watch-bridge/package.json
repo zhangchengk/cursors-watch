@@ -1,16 +1,12 @@
 {
   "name": "cursor-watch-bridge",
-  "displayName": "Cursors Watch Bridge (Spike)",
-  "description": "Spike: focus Agent chat by conversationId for Cursors Watch",
-  "version": "0.0.1",
+  "displayName": "Cursors Watch Bridge",
+  "description": "Focus local Agent chat by conversationId for Cursors Watch",
+  "version": "0.1.0",
   "publisher": "cursor-watch",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
-  "activationEvents": [
-    "onCommand:cursor-watch.bridge.dumpCommands",
-    "onCommand:cursor-watch.bridge.focusById",
-    "onCommand:cursor-watch.bridge.focusCanvasOnly"
-  ],
+  "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [

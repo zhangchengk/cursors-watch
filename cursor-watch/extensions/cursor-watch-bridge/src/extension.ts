@@ -1,5 +1,9 @@
 import * as vscode from "vscode";
 import {
+  focusLocalAgentByConversationId,
+  startBridgeClient,
+} from "./bridge-client";
+import {
   listInterestingCommands,
   probeCanvasOpenOnly,
   probeFocusByConversationId,
@@ -8,6 +12,14 @@ import { classifySpikeVerdict } from "./spike-verdict";
 
 export function activate(context: vscode.ExtensionContext) {
   const out = vscode.window.createOutputChannel("Cursors Watch Bridge");
+  const version =
+    (context.extension.packageJSON as { version?: string })?.version ?? "0.1.0";
+
+  const bridge = startBridgeClient({
+    extensionVersion: version,
+    log: (line) => out.appendLine(line),
+    executeFocus: focusLocalAgentByConversationId,
+  });
 
   const confirmVisualFocus = async () => {
     const pick = await vscode.window.showInformationMessage(
@@ -43,6 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     out,
+    { dispose: () => bridge.dispose() },
     vscode.commands.registerCommand("cursor-watch.bridge.dumpCommands", async () => {
       const ids = await listInterestingCommands((f) => vscode.commands.getCommands(f));
       out.clear();
