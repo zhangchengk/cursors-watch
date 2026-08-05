@@ -4,6 +4,7 @@ import type {
   BridgeRegisterInfo,
   BridgeServerToClient,
 } from "./types.js";
+import { workspacePathsMatch } from "./types.js";
 
 type Client = {
   info: BridgeRegisterInfo;
@@ -43,24 +44,35 @@ export class BridgeHub {
     const id = clientId?.trim();
     if (!id) return;
     this.clients.set(id, {
-      info,
+      info: {
+        ...info,
+        workspacePaths: info.workspacePaths ?? [],
+      },
       send,
       lastHeartbeatAt: this.now(),
     });
   }
 
-  heartbeat(clientId: string): void {
+  heartbeat(clientId: string, workspacePaths?: string[]): void {
     const c = this.clients.get(clientId);
     if (!c) return;
     c.lastHeartbeatAt = this.now();
+    if (workspacePaths) {
+      c.info = { ...c.info, workspacePaths };
+    }
   }
 
   unregister(clientId: string): void {
     this.clients.delete(clientId);
   }
 
-  isOnline(): boolean {
-    return this.pickOnlineClient() !== null;
+  isOnline(workspacePath?: string): boolean {
+    return this.pickOnlineClient(workspacePath) !== null;
+  }
+
+  /** True when an online client reports this workspace folder. */
+  hasClientForWorkspace(workspacePath: string): boolean {
+    return this.pickOnlineClient(workspacePath, { requireWorkspaceMatch: true }) !== null;
   }
 
   status(): { online: boolean; extensionVersion?: string } {
@@ -73,7 +85,21 @@ export class BridgeHub {
     conversationId: string;
     workspacePath: string;
   }): Promise<BridgeFocusResult> {
-    const picked = this.pickOnlineClient();
+    // Prefer workspace-matched window. Only fall back to any online client when
+    // no client has reported workspacePaths yet (legacy / empty window).
+    let picked = this.pickOnlineClient(req.workspacePath, {
+      requireWorkspaceMatch: true,
+    });
+    if (!picked) {
+      const anyWithPaths = this.anyOnlineClientReportingWorkspaces();
+      if (anyWithPaths) {
+        return {
+          ok: false,
+          error: "没有对应该工程的 Cursor 窗口（请先打开该文件夹）",
+        };
+      }
+      picked = this.pickOnlineClient();
+    }
     if (!picked) {
       return { ok: false, error: "桥未连接" };
     }
@@ -112,12 +138,14 @@ export class BridgeHub {
     const type = m.type;
 
     if (type === "heartbeat") {
-      this.heartbeat(clientId);
+      const paths = Array.isArray(m.workspacePaths)
+        ? m.workspacePaths.filter((p): p is string => typeof p === "string")
+        : undefined;
+      this.heartbeat(clientId, paths);
       return;
     }
 
     if (type === "register") {
-      // Allow re-register over existing WS with same send via register() from server.
       return;
     }
 
@@ -139,9 +167,24 @@ export class BridgeHub {
     }
   }
 
-  private pickOnlineClient(): { clientId: string; client: Client } | null {
+  private anyOnlineClientReportingWorkspaces(): boolean {
     const now = this.now();
-    let best: { clientId: string; client: Client } | null = null;
+    for (const client of this.clients.values()) {
+      if (now - client.lastHeartbeatAt > this.heartbeatTtlMs) continue;
+      if ((client.info.workspacePaths?.length ?? 0) > 0) return true;
+    }
+    return false;
+  }
+
+  private pickOnlineClient(
+    preferredWorkspace?: string,
+    opts?: { requireWorkspaceMatch?: boolean },
+  ): { clientId: string; client: Client } | null {
+    const now = this.now();
+    const requireMatch = opts?.requireWorkspaceMatch === true;
+    let bestMatch: { clientId: string; client: Client } | null = null;
+    let bestAny: { clientId: string; client: Client } | null = null;
+
     for (const [clientId, client] of this.clients) {
       if (now - client.lastHeartbeatAt > this.heartbeatTtlMs) continue;
       if (
@@ -149,10 +192,23 @@ export class BridgeHub {
       ) {
         continue;
       }
-      if (!best || client.lastHeartbeatAt > best.client.lastHeartbeatAt) {
-        best = { clientId, client };
+      if (!bestAny || client.lastHeartbeatAt > bestAny.client.lastHeartbeatAt) {
+        bestAny = { clientId, client };
+      }
+      if (
+        preferredWorkspace &&
+        workspacePathsMatch(preferredWorkspace, client.info.workspacePaths)
+      ) {
+        if (
+          !bestMatch ||
+          client.lastHeartbeatAt > bestMatch.client.lastHeartbeatAt
+        ) {
+          bestMatch = { clientId, client };
+        }
       }
     }
-    return best;
+
+    if (requireMatch) return bestMatch;
+    return bestMatch ?? bestAny;
   }
 }

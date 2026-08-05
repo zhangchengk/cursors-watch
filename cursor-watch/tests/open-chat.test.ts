@@ -24,8 +24,13 @@ describe("openChatInCursor", () => {
       conversationId: "missing",
       workspacePath: "/Users/u/A",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
-      bridge: { isOnline: () => true, focus: vi.fn() },
+      bridge: {
+        isOnline: () => true,
+        focus: vi.fn(),
+        hasClientForWorkspace: () => true,
+      },
       openWorkspace: vi.fn(),
+      workspaceBridgeWaitMs: 0,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -39,8 +44,13 @@ describe("openChatInCursor", () => {
       conversationId: "real",
       workspacePath: "/evil",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
-      bridge: { isOnline: () => true, focus: vi.fn() },
+      bridge: {
+        isOnline: () => true,
+        focus: vi.fn(),
+        hasClientForWorkspace: () => true,
+      },
       openWorkspace: vi.fn(),
+      workspaceBridgeWaitMs: 0,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -54,8 +64,13 @@ describe("openChatInCursor", () => {
       conversationId: "real",
       workspacePath: "/Users/u/A",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
-      bridge: { isOnline: () => true, focus: vi.fn() },
+      bridge: {
+        isOnline: () => true,
+        focus: vi.fn(),
+        hasClientForWorkspace: () => true,
+      },
       openWorkspace: vi.fn().mockResolvedValue({ ok: false, error: "boom", statusCode: 500 }),
+      workspaceBridgeWaitMs: 0,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.stage).toBe("workspace");
@@ -68,9 +83,14 @@ describe("openChatInCursor", () => {
       workspacePath: "/Users/u/A",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
       openWorkspace: vi.fn().mockResolvedValue({ ok: true }),
-      bridge: { isOnline: () => false, focus: vi.fn() },
+      bridge: {
+        isOnline: () => false,
+        focus: vi.fn(),
+        hasClientForWorkspace: () => false,
+      },
       sleep,
       retryDelayMs: 10,
+      workspaceBridgeWaitMs: 0,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.stage).toBe("bridge");
@@ -85,9 +105,14 @@ describe("openChatInCursor", () => {
       workspacePath: "/Users/u/A",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
       openWorkspace,
-      bridge: { isOnline: () => true, focus },
+      bridge: {
+        isOnline: () => true,
+        focus,
+        hasClientForWorkspace: () => true,
+      },
       sleep: vi.fn().mockResolvedValue(undefined),
       retryDelayMs: 5,
+      workspaceBridgeWaitMs: 0,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -105,7 +130,12 @@ describe("openChatInCursor", () => {
       workspacePath: "/Users/u/A",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
       openWorkspace: vi.fn().mockResolvedValue({ ok: true }),
-      bridge: { isOnline: () => true, focus },
+      bridge: {
+        isOnline: () => true,
+        focus,
+        hasClientForWorkspace: () => true,
+      },
+      workspaceBridgeWaitMs: 0,
     });
     expect(r).toEqual({ ok: true });
     expect(focus).toHaveBeenCalledWith({

@@ -81,4 +81,67 @@ describe("BridgeHub", () => {
     const r = await hub.focus({ conversationId: "abc", workspacePath: "/tmp/p" });
     expect(r.ok).toBe(false);
   });
+
+  it("focus routes to client matching workspacePath", async () => {
+    const hub = new BridgeHub({ focusTimeoutMs: 1_000 });
+    const sendWrong = vi.fn();
+    const sendRight = vi.fn((msg: unknown) => {
+      const m = msg as { type: string; requestId: string };
+      if (m.type === "focus") {
+        hub.onClientMessage("right", {
+          type: "focus-result",
+          requestId: m.requestId,
+          ok: true,
+        });
+      }
+    });
+    hub.register(
+      "wrong",
+      {
+        extensionVersion: "0.1.1",
+        capabilities: ["canvas.openAgentByConversationId"],
+        workspacePaths: ["/Users/u/other"],
+      },
+      sendWrong,
+    );
+    hub.heartbeat("wrong", ["/Users/u/other"]);
+    hub.register(
+      "right",
+      {
+        extensionVersion: "0.1.1",
+        capabilities: ["canvas.openAgentByConversationId"],
+        workspacePaths: ["/Users/u/target"],
+      },
+      sendRight,
+    );
+    hub.heartbeat("right", ["/Users/u/target"]);
+
+    const r = await hub.focus({
+      conversationId: "abc",
+      workspacePath: "/Users/u/target",
+    });
+    expect(r).toEqual({ ok: true });
+    expect(sendRight).toHaveBeenCalled();
+    expect(sendWrong).not.toHaveBeenCalled();
+  });
+
+  it("focus refuses when other windows report workspaces but none match", async () => {
+    const hub = new BridgeHub({ focusTimeoutMs: 200 });
+    hub.register(
+      "other",
+      {
+        extensionVersion: "0.1.1",
+        capabilities: ["canvas.openAgentByConversationId"],
+        workspacePaths: ["/Users/u/other"],
+      },
+      vi.fn(),
+    );
+    hub.heartbeat("other", ["/Users/u/other"]);
+    const r = await hub.focus({
+      conversationId: "abc",
+      workspacePath: "/Users/u/target",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/没有对应|工程/);
+  });
 });

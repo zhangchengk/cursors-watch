@@ -6,9 +6,14 @@ export type BridgeClientOptions = {
   port?: number;
   extensionVersion: string;
   log: (line: string) => void;
-  executeFocus: (conversationId: string) => Promise<void>;
+  executeFocus: (conversationId: string, workspacePath?: string) => Promise<void>;
   clientId?: string;
+  getWorkspacePaths?: () => string[];
 };
+
+function defaultWorkspacePaths(): string[] {
+  return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+}
 
 /**
  * Connects to Cursors Watch daemon `/ws/bridge` and handles focus RPCs.
@@ -16,7 +21,8 @@ export type BridgeClientOptions = {
 export function startBridgeClient(opts: BridgeClientOptions): { dispose: () => void } {
   const port =
     opts.port ?? (Number(process.env.CURSOR_WATCH_PORT || "7423") || 7423);
-  const clientId = opts.clientId ?? `ext-${Date.now()}`;
+  const clientId = opts.clientId ?? `ext-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const getWorkspacePaths = opts.getWorkspacePaths ?? defaultWorkspacePaths;
   let ws: WebSocket | null = null;
   let disposed = false;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -49,16 +55,22 @@ export function startBridgeClient(opts: BridgeClientOptions): { dispose: () => v
 
     ws.addEventListener("open", () => {
       backoffMs = 1000;
-      opts.log("bridge connected");
+      const workspacePaths = getWorkspacePaths();
+      opts.log(`bridge connected workspaces=${workspacePaths.join(",") || "(none)"}`);
       send({
         type: "register",
         clientId,
         extensionVersion: opts.extensionVersion,
         capabilities: [CAPABILITY],
+        workspacePaths,
       });
       clearHeartbeat();
       heartbeatTimer = setInterval(() => {
-        send({ type: "heartbeat", clientId });
+        send({
+          type: "heartbeat",
+          clientId,
+          workspacePaths: getWorkspacePaths(),
+        });
       }, 5000);
     });
 
@@ -75,6 +87,8 @@ export function startBridgeClient(opts: BridgeClientOptions): { dispose: () => v
       const requestId = typeof m.requestId === "string" ? m.requestId : "";
       const conversationId =
         typeof m.conversationId === "string" ? m.conversationId.trim() : "";
+      const workspacePath =
+        typeof m.workspacePath === "string" ? m.workspacePath.trim() : "";
       void (async () => {
         if (!conversationId) {
           send({
@@ -86,8 +100,29 @@ export function startBridgeClient(opts: BridgeClientOptions): { dispose: () => v
           return;
         }
         try {
-          opts.log(`focus ${conversationId}`);
-          await opts.executeFocus(conversationId);
+          const mine = getWorkspacePaths();
+          if (
+            workspacePath &&
+            mine.length > 0 &&
+            !mine.some(
+              (p) =>
+                p === workspacePath ||
+                p.replace(/\/$/, "") === workspacePath.replace(/\/$/, ""),
+            )
+          ) {
+            opts.log(
+              `skip focus: workspace mismatch want=${workspacePath} have=${mine.join(",")}`,
+            );
+            send({
+              type: "focus-result",
+              requestId,
+              ok: false,
+              error: "wrong Cursor window for workspace",
+            });
+            return;
+          }
+          opts.log(`focus ${conversationId} in ${mine.join(",") || "(empty)"}`);
+          await opts.executeFocus(conversationId, workspacePath || undefined);
           send({ type: "focus-result", requestId, ok: true });
         } catch (err) {
           const error = err instanceof Error ? err.message : String(err);

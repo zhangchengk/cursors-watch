@@ -141,19 +141,29 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
         const capabilities = Array.isArray(m.capabilities)
           ? m.capabilities.filter((c): c is string => typeof c === "string")
           : [];
+        const workspacePaths = Array.isArray(m.workspacePaths)
+          ? m.workspacePaths.filter((p): p is string => typeof p === "string")
+          : [];
         const id =
           typeof m.clientId === "string" && m.clientId.trim()
             ? m.clientId.trim()
             : clientId;
-        bridgeHub.register(id, { extensionVersion, capabilities }, send);
-        bridgeHub.heartbeat(id);
+        bridgeHub.register(
+          id,
+          { extensionVersion, capabilities, workspacePaths },
+          send,
+        );
+        bridgeHub.heartbeat(id, workspacePaths);
         (socket as { __bridgeClientId?: string }).__bridgeClientId = id;
         return;
       }
       const id =
         (socket as { __bridgeClientId?: string }).__bridgeClientId ?? clientId;
       if (m.type === "heartbeat") {
-        bridgeHub.heartbeat(id);
+        const workspacePaths = Array.isArray(m.workspacePaths)
+          ? m.workspacePaths.filter((p): p is string => typeof p === "string")
+          : undefined;
+        bridgeHub.heartbeat(id, workspacePaths);
         return;
       }
       bridgeHub.onClientMessage(id, msg);

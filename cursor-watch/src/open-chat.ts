@@ -25,14 +25,17 @@ export async function openChatInCursor(opts: {
     workspacePath: string;
     sessions: SessionState[];
   }) => Promise<OpenWorkspaceResult>;
-  bridge: Pick<BridgeHub, "isOnline" | "focus">;
+  bridge: Pick<BridgeHub, "isOnline" | "focus" | "hasClientForWorkspace">;
   sleep?: (ms: number) => Promise<void>;
   retryDelayMs?: number;
+  /** After open workspace, wait for a bridge client that reports this folder */
+  workspaceBridgeWaitMs?: number;
 }): Promise<OpenChatResult> {
   const conversationId = opts.conversationId?.trim() ?? "";
   const workspacePath = opts.workspacePath?.trim() ?? "";
   const sleep = opts.sleep ?? defaultSleep;
   const retryDelayMs = opts.retryDelayMs ?? 2500;
+  const workspaceBridgeWaitMs = opts.workspaceBridgeWaitMs ?? 4000;
   const openWorkspace = opts.openWorkspace ?? openWorkspaceInCursor;
 
   if (!isAllowedWorkspacePath(workspacePath, opts.sessions)) {
@@ -69,9 +72,18 @@ export async function openChatInCursor(opts: {
     };
   }
 
-  if (!opts.bridge.isOnline()) {
+  // Prefer the Cursor window that already has this folder open.
+  const deadline = Date.now() + workspaceBridgeWaitMs;
+  while (
+    !opts.bridge.hasClientForWorkspace?.(workspacePath) &&
+    Date.now() < deadline
+  ) {
+    await sleep(200);
+  }
+
+  if (!opts.bridge.isOnline(workspacePath) && !opts.bridge.isOnline()) {
     await sleep(retryDelayMs);
-    if (!opts.bridge.isOnline()) {
+    if (!opts.bridge.isOnline(workspacePath) && !opts.bridge.isOnline()) {
       return {
         ok: false,
         stage: "bridge",
@@ -98,6 +110,14 @@ export async function openChatInCursor(opts: {
       error: ws2.error,
       statusCode: ws2.statusCode,
     };
+  }
+
+  const deadline2 = Date.now() + workspaceBridgeWaitMs;
+  while (
+    !opts.bridge.hasClientForWorkspace?.(workspacePath) &&
+    Date.now() < deadline2
+  ) {
+    await sleep(200);
   }
 
   focusResult = await tryFocus();
