@@ -4,7 +4,7 @@
 
 Cursors Watch watches multiple local Cursor Agent sessions (npm package name remains `cursor-watch`). On Turn end it interrupts you with an OS notification or HUD, leaves one pending item in the panel inbox, and lists currently running sessions below.
 
-Reminders need optional hooks (`hooks install`). Without them there is no OS Reminder, only an install prompt on the panel. While an Active `/loop` sentinel is still alive, hooks `stop` events are not treated as turn end, so you do not get false alarms. From the panel you can open the matching workspace folder in Cursor on this Mac. It does not deep-link into a specific Agent/chat, and it does not modify session content or orchestrate work for you.
+Reminders need hooks; opening the matching Agent chat needs the bridge extension (both are **default-installed and self-checked** on App/`open`). While an Active `/loop` sentinel is still alive, hooks `stop` events are not treated as turn end. Panel `↗` opens the workspace then focuses the chat via `canvas.openAgentByConversationId` (verified on Cursor 3.13.x; semi-internal — may degrade to workspace-only + toast after major upgrades). It does not modify session content or orchestrate work for you.
 
 It is not a task hub or remote monitoring tool, and it does not replace Cursor's sidebar. It only reads local Cursor data (see below), and it is macOS only. The server binds to localhost and shows paths and message excerpts in the clear with no redaction, so do not expose the port to the network.
 
@@ -142,6 +142,7 @@ Flow:
 | `live-state.ts` / `reminders/*` | LIVE, Turn end Reminder, delivery adapters |
 | `loop-ledger/*` | Active `/loop` sentinel ledger (suppress false alarms) |
 | `open-workspace.ts` | path allow-list, then `open -a Cursor <path>` |
+| `open-chat.ts` / `bridge/hub.ts` | open folder + focus chat via bridge `canvas.openAgentByConversationId` |
 | `server.ts` | static UI, `/api/*`, `/ws` |
 | `web/*` | inbox-first panel (pending + running) |
 | `macos/CursorWatch` + `scripts/package-*.sh` | menubar shell, `.app` / `.dmg` packaging |
@@ -189,6 +190,8 @@ Transcripts older than **7 days** by mtime are skipped (`SCAN_LOOKBACK_MS`).
 | `POST /api/reminders/:conversationId/ack` | acknowledge one Reminder |
 | `GET /api/hooks-status` | whether hooks are installed |
 | `POST /api/open-workspace` | body `{ path }` |
+| `POST /api/open-chat` | body `{ conversationId, workspacePath }` → open folder + focus chat |
+| `GET /api/bridge-status` | `{ online, extensionVersion? }` |
 | `GET /ws` | `sessions` / `reminders` push |
 
 ### Hooks

@@ -1,6 +1,6 @@
 # cursor-watch：面板跳转打开对应 Cursor Chat 设计
 
-状态：已批准（待 Spike）  
+状态：产品接线已实现（Spike pass → BridgeHub / open-chat）  
 日期：2026-08-05  
 范围：面板卡片 `↗` 从「仅打开工程」升级为「打开工程并聚焦对应 Agent Chat」；经 Cursor 扩展桥实现；**先 Spike 后产品**  
 前置：`CONTEXT.md`、现有 `open-workspace`、`composerHeaders` / `conversationId` 对齐  

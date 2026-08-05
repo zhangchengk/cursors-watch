@@ -55,19 +55,33 @@ function showToast(message) {
   }, 2800);
 }
 
-async function openInCursor(workspacePath) {
+async function openInCursor(session) {
+  const conversationId = session?.id;
+  const workspacePath = session?.workspacePath;
+  if (!conversationId || !workspacePath) {
+    showToast("缺少会话或工程路径");
+    return;
+  }
   try {
-    const res = await fetch("/api/open-workspace", {
+    const res = await fetch("/api/open-chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path: workspacePath }),
+      body: JSON.stringify({ conversationId, workspacePath }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) {
-      showToast(data.error || `打开失败 (${res.status})`);
+    if (data.ok) {
+      showToast("已在 Cursor 中打开对应 Chat");
       return;
     }
-    showToast("已请求在 Cursor 中打开");
+    if (data.stage === "workspace") {
+      showToast(data.error || "打开工程失败");
+    } else if (data.stage === "bridge") {
+      showToast(data.error || "桥未连接：请确认已装扩展且 Cursor 已打开");
+    } else if (data.stage === "focus") {
+      showToast(data.error || "未能定位到 Chat（工程可能已打开）");
+    } else {
+      showToast(data.error || `打开失败 (${res.status})`);
+    }
   } catch (err) {
     showToast(err instanceof Error ? err.message : "打开失败");
   }
@@ -127,7 +141,7 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
   const lines = attentionCardLines(s);
   const banner = completionBanner(s);
   const openBtn = s.workspacePath
-    ? `<button type="button" class="open-cursor" title="在 Cursor 中打开工程">↗</button>`
+    ? `<button type="button" class="open-cursor" title="在 Cursor 中打开对应 Chat">↗</button>`
     : "";
   const liveBit = s.live
     ? `<span class="live-inline">LIVE</span> ${escapeHtml(s.liveHint || lines.subtitle)}`
@@ -166,7 +180,7 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
   if (ob) {
     ob.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      void openInCursor(s.workspacePath);
+      void openInCursor(s);
     });
   }
   const ackBtn = card.querySelector(".inbox-ack");
@@ -449,7 +463,7 @@ function openDrawer(s) {
       ? new Date(s.composerUpdatedAt).toISOString()
       : "—";
   const openBtn = s.workspacePath
-    ? `<button type="button" class="drawer-open-cursor" id="drawerOpenCursor">在 Cursor 中打开</button>`
+    ? `<button type="button" class="drawer-open-cursor" id="drawerOpenCursor">在 Cursor 中打开对应 Chat</button>`
     : "";
 
   drawerEl.innerHTML = `
@@ -499,7 +513,7 @@ function openDrawer(s) {
   };
   const openCursorBtn = document.getElementById("drawerOpenCursor");
   if (openCursorBtn && s.workspacePath) {
-    openCursorBtn.onclick = () => void openInCursor(s.workspacePath);
+    openCursorBtn.onclick = () => void openInCursor(s);
   }
 }
 

@@ -117,6 +117,21 @@ export async function runDaemon(): Promise<void> {
   // (setImmediate still runs across await buildServer if watcher starts first).
   await app.listen({ host, port });
   console.log(`[cursor-watch] listening on http://${host}:${port}`);
+  try {
+    const { ensureWatchComponents } = await import("./ensure-components.js");
+    const status = await ensureWatchComponents({ homeDir });
+    console.log(
+      `[cursor-watch] components hooks=${status.hooksInstalled} ext=${status.extensionInstalled} bridge ready via /api/bridge-status`,
+    );
+    if (status.errors.length) {
+      console.warn("[cursor-watch] ensure:", status.errors.join("; "));
+    }
+  } catch (err) {
+    console.warn(
+      "[cursor-watch] ensure components failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
   const watcher = startWatcher(cursorProjectsDir(), homeDir, store, {
     onReminderChanged,
     onSessionsReplaced: (sessions, previous) => {

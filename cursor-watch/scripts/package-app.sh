@@ -76,6 +76,16 @@ rm -f "$RES_DIR/node"
 cp -f "$NODE_BIN" "$RES_DIR/node"
 chmod +x "$RES_DIR/node"
 
+# Bundle bridge VSIX when present (built via extensions/cursor-watch-bridge)
+VSIX_SRC="$(ls -1 "$ROOT/extensions/cursor-watch-bridge"/*.vsix 2>/dev/null | tail -1 || true)"
+if [ -n "$VSIX_SRC" ] && [ -f "$VSIX_SRC" ]; then
+  mkdir -p "$RES_DIR/cursor-watch/extensions/cursor-watch-bridge"
+  cp -f "$VSIX_SRC" "$RES_DIR/cursor-watch/extensions/cursor-watch-bridge/"
+  echo "Bundled VSIX: $(basename "$VSIX_SRC")"
+else
+  echo "warn: no bridge VSIX found under extensions/cursor-watch-bridge — run vsce package there first" >&2
+fi
+
 xattr -cr "$APP" 2>/dev/null || true
 # Drop previous signature so re-sign succeeds after resource refresh
 codesign --remove-signature "$APP" 2>/dev/null || true

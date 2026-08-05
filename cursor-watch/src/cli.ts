@@ -129,6 +129,18 @@ async function main(): Promise<void> {
   }
   if (cmd === "open") {
     await ensureDaemon();
+    try {
+      const { ensureWatchComponents } = await import("./ensure-components.js");
+      const status = await ensureWatchComponents();
+      if (status.errors.length) {
+        console.warn("[cursor-watch] ensure components:", status.errors.join("; "));
+      }
+    } catch (err) {
+      console.warn(
+        "[cursor-watch] ensure components failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
     const url = `http://${listenHost()}:${listenPort()}/`;
     await openBrowser(url);
     console.log(url);

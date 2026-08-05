@@ -4,7 +4,7 @@
 
 Cursors Watch 盯的是本机多个 Cursor Agent 会话（npm 包名仍是 `cursor-watch`）。某次对话 Turn end 时，它用系统通知或 HUD 打断你，并在面板收件箱留下一条待确认；下方「运行中」列出当前还在跑的会话。
 
-发 Reminder 要先装可选 hooks（`hooks install`）。没装就不会发系统提醒，面板只提示去安装。会话仍处在 Active `/loop` 时，hooks 打出的 `stop` 不算结束，避免误报。面板可以打开该会话对应的工作区文件夹（唤起本机 Cursor），但定位不到具体某个 Agent/chat，也不会改会话内容或替你调度。
+发 Reminder 需要 hooks；打开对应 Agent Chat 需要桥扩展（均随 App/`open` **默认安装并自检**）。会话仍处在 Active `/loop` 时，hooks 打出的 `stop` 不算结束，避免误报。面板 `↗` 会先打开该会话工作区，再经桥扩展调用 Cursor 命令聚焦对应 Chat（已在 Cursor 3.13.x 验证；属半内部 API，大版本升级后若失效会降级为仅开工程并 toast）。不会改会话内容或替你调度。
 
 它不是任务中枢或远程监控，也不能替代 Cursor 侧边栏。数据只读本机 Cursor 目录（见后文），且仅支持 macOS。服务只绑 localhost，路径和消息摘录按原文展示、不做脱敏，所以不要把端口暴露到公网。
 
@@ -142,6 +142,7 @@ Cursors Watch.app（菜单栏壳）
 | `live-state.ts` / `reminders/*` | LIVE、Turn end Reminder、通知适配器 |
 | `loop-ledger/*` | Active `/loop` 哨兵账本（压制误报） |
 | `open-workspace.ts` | 校验路径后 `open -a Cursor <path>` |
+| `open-chat.ts` / `bridge/hub.ts` | 开工程 + 经扩展桥 `canvas.openAgentByConversationId` 聚焦 Chat |
 | `server.ts` | 静态资源、`/api/*`、`/ws` |
 | `web/*` | 收件箱优先面板（待确认 + 运行中） |
 | `macos/CursorWatch` + `scripts/package-*.sh` | 菜单栏壳、`.app` / `.dmg` 打包 |
@@ -189,6 +190,8 @@ Cursors Watch.app（菜单栏壳）
 | `POST /api/reminders/:conversationId/ack` | 确认一条 Reminder |
 | `GET /api/hooks-status` | hooks 是否已安装 |
 | `POST /api/open-workspace` | body `{ path }` |
+| `POST /api/open-chat` | body `{ conversationId, workspacePath }` → 开工程并聚焦 Chat |
+| `GET /api/bridge-status` | `{ online, extensionVersion? }` |
 | `GET /ws` | 推送 `sessions` / `reminders` |
 
 ### Hooks
