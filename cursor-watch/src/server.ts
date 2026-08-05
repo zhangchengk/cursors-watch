@@ -1,10 +1,13 @@
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
+import { BridgeHub } from "./bridge/hub.js";
 import { hooksStatus } from "./hooks-install.js";
+import { openChatInCursor } from "./open-chat.js";
 import { openWorkspaceInCursor } from "./open-workspace.js";
 import { loadWatchPrefs, saveWatchPrefs } from "./prefs.js";
 import { ReminderHub } from "./reminders/hub.js";
@@ -15,11 +18,13 @@ const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "web");
 export type BuildServerOptions = {
   homeDir?: string;
   reminderHub?: ReminderHub;
+  bridgeHub?: BridgeHub;
 };
 
 export async function buildServer(store: SessionStore, opts?: BuildServerOptions) {
   const homeDir = opts?.homeDir ?? os.homedir();
   const reminderHub = opts?.reminderHub ?? new ReminderHub(homeDir);
+  const bridgeHub = opts?.bridgeHub ?? new BridgeHub();
 
   const app = Fastify({ logger: false });
   await app.register(websocket);
@@ -33,6 +38,7 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
   app.get("/api/reminders", async () => reminderHub.listPending());
   app.get("/api/prefs", async () => loadWatchPrefs(homeDir));
   app.get("/api/hooks-status", async () => hooksStatus(homeDir));
+  app.get("/api/bridge-status", async () => bridgeHub.status());
 
   app.put<{ Body: { notificationSound?: unknown } }>("/api/prefs", async (req, reply) => {
     if (typeof req.body?.notificationSound !== "boolean") {
@@ -64,6 +70,35 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
     return { ok: true };
   });
 
+  app.post<{ Body: { conversationId?: string; workspacePath?: string } }>(
+    "/api/open-chat",
+    async (req, reply) => {
+      const conversationId =
+        typeof req.body?.conversationId === "string" ? req.body.conversationId : "";
+      const workspacePath =
+        typeof req.body?.workspacePath === "string" ? req.body.workspacePath : "";
+      if (!conversationId.trim() || !workspacePath.trim()) {
+        return reply.code(400).send({
+          ok: false,
+          stage: "focus",
+          error: "conversationId and workspacePath required",
+        });
+      }
+      const result = await openChatInCursor({
+        conversationId,
+        workspacePath,
+        sessions: store.getSessions(),
+        bridge: bridgeHub,
+      });
+      if (!result.ok) {
+        return reply
+          .code(result.statusCode ?? 400)
+          .send({ ok: false, stage: result.stage, error: result.error });
+      }
+      return { ok: true };
+    },
+  );
+
   app.get("/ws", { websocket: true }, (socket) => {
     const sendSessions = () => {
       socket.send(JSON.stringify({ type: "sessions", payload: store.getSessions() }));
@@ -78,6 +113,56 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
     socket.on("close", () => {
       unsubSessions();
       unsubReminders();
+    });
+  });
+
+  app.get("/ws/bridge", { websocket: true }, (socket) => {
+    const clientId = randomUUID();
+    const send = (msg: unknown) => {
+      try {
+        socket.send(JSON.stringify(msg));
+      } catch {
+        /* closed */
+      }
+    };
+
+    socket.on("message", (raw) => {
+      let msg: unknown;
+      try {
+        msg = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
+      if (!msg || typeof msg !== "object") return;
+      const m = msg as Record<string, unknown>;
+      if (m.type === "register") {
+        const extensionVersion =
+          typeof m.extensionVersion === "string" ? m.extensionVersion : "0.0.0";
+        const capabilities = Array.isArray(m.capabilities)
+          ? m.capabilities.filter((c): c is string => typeof c === "string")
+          : [];
+        const id =
+          typeof m.clientId === "string" && m.clientId.trim()
+            ? m.clientId.trim()
+            : clientId;
+        bridgeHub.register(id, { extensionVersion, capabilities }, send);
+        bridgeHub.heartbeat(id);
+        (socket as { __bridgeClientId?: string }).__bridgeClientId = id;
+        return;
+      }
+      const id =
+        (socket as { __bridgeClientId?: string }).__bridgeClientId ?? clientId;
+      if (m.type === "heartbeat") {
+        bridgeHub.heartbeat(id);
+        return;
+      }
+      bridgeHub.onClientMessage(id, msg);
+    });
+
+    socket.on("close", () => {
+      const id =
+        (socket as { __bridgeClientId?: string }).__bridgeClientId ?? clientId;
+      bridgeHub.unregister(id);
     });
   });
 

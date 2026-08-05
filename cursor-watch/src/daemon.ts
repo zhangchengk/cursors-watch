@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { BridgeHub } from "./bridge/hub.js";
 import {
   cursorProjectsDir,
   listenHost,
@@ -107,8 +108,9 @@ export async function runDaemon(): Promise<void> {
   const store = new SessionStore();
   const homeDir = os.homedir();
   const reminderHub = new ReminderHub(homeDir);
+  const bridgeHub = new BridgeHub();
   const onReminderChanged = () => reminderHub.notifyChanged();
-  const app = await buildServer(store, { homeDir, reminderHub });
+  const app = await buildServer(store, { homeDir, reminderHub, bridgeHub });
   const host = listenHost();
   const port = listenPort();
   // Bind HTTP before startWatcher so the initial scan cannot block listen

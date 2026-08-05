@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, beforeAll, afterAll, afterEach } from "vitest";
 import { SessionStore } from "../src/store.js";
 import { buildServer } from "../src/server.js";
+import { BridgeHub } from "../src/bridge/hub.js";
 import { ReminderHub } from "../src/reminders/hub.js";
 import { upsertPendingReminder } from "../src/reminders/store.js";
 import { saveWatchPrefs, loadWatchPrefs } from "../src/prefs.js";
@@ -298,6 +299,90 @@ describe("buildServer", () => {
     );
 
     ws.close();
+  });
+});
+
+describe("POST /api/open-chat", () => {
+  it("rejects missing body fields", async () => {
+    const store = new SessionStore();
+    const home = tempHome();
+    const bridgeHub = new BridgeHub();
+    const app = await buildServer(store, { homeDir: home, bridgeHub });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/open-chat",
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().ok).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("404 when session id unknown", async () => {
+    const store = new SessionStore();
+    store.replaceAll([
+      {
+        id: "real",
+        projectKey: "p",
+        workspacePath: "/Users/u/A",
+        workspaceLabel: "A",
+        status: "idle",
+        summary: "s",
+        currentAction: "a",
+        lastActivityAt: 1,
+        subagentCount: 0,
+        subagentRunning: 0,
+        transcriptPath: "/t",
+        recentMessages: [],
+      },
+    ]);
+    const home = tempHome();
+    const bridgeHub = new BridgeHub();
+    bridgeHub.register(
+      "ext",
+      { extensionVersion: "0.1.0", capabilities: ["canvas.openAgentByConversationId"] },
+      () => {},
+    );
+    bridgeHub.heartbeat("ext");
+    const app = await buildServer(store, { homeDir: home, bridgeHub });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/open-chat",
+        payload: { conversationId: "missing", workspacePath: "/Users/u/A" },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().stage).toBe("focus");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("GET /api/bridge-status reflects hub", async () => {
+    const store = new SessionStore();
+    const home = tempHome();
+    const bridgeHub = new BridgeHub();
+    const app = await buildServer(store, { homeDir: home, bridgeHub });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const offline = await app.inject({ method: "GET", url: "/api/bridge-status" });
+      expect(offline.json()).toEqual({ online: false });
+      bridgeHub.register(
+        "ext",
+        { extensionVersion: "0.1.0", capabilities: ["canvas.openAgentByConversationId"] },
+        () => {},
+      );
+      bridgeHub.heartbeat("ext");
+      const online = await app.inject({ method: "GET", url: "/api/bridge-status" });
+      expect(online.json()).toEqual({ online: true, extensionVersion: "0.1.0" });
+    } finally {
+      await app.close();
+    }
   });
 });
 
