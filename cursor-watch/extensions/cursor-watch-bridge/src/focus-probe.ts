@@ -5,14 +5,19 @@ const INTERESTING =
   /composer|aichat|agent|chat\.|cursor\.chat|backgroundAgent/i;
 
 export const PREFERRED_FOCUS_COMMANDS = [
+  // Cursor 3.13+ — strongest candidate from dump (open Agent by conversationId)
+  "canvas.openAgentByConversationId",
+  "composer.getComposerHandleById",
   "composer.focusComposer",
   "composer.selectComposer",
   "composer.openComposer",
   "composer.showComposer",
   "composer.openChatAsEditor",
+  "composer.resumeCurrentChat",
   "composer.resumeCurrentComposer",
   "aichat.open",
   "workbench.action.chat.open",
+  "workbench.action.openAgentsView",
 ] as const;
 
 export async function listInterestingCommands(
@@ -31,6 +36,9 @@ export function preferredFocusCommands(allInteresting: string[]): string[] {
   for (const id of allInteresting) {
     if (out.includes(id)) continue;
     if (/composer\.(focus|select|open)/i.test(id)) out.push(id);
+    if (/openAgentByConversationId|openCloudAgentById|getComposerHandleById/i.test(id)) {
+      out.push(id);
+    }
   }
   return out;
 }

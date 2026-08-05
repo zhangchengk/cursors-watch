@@ -8,7 +8,18 @@ describe("preferredFocusCommands", () => {
         "composer.openChatAsEditor",
         "zzz.other",
         "composer.focusComposer",
+        "canvas.openAgentByConversationId",
       ]),
-    ).toEqual(["composer.focusComposer", "composer.openChatAsEditor"]);
+    ).toEqual([
+      "canvas.openAgentByConversationId",
+      "composer.focusComposer",
+      "composer.openChatAsEditor",
+    ]);
+  });
+
+  it("also picks openAgentByConversationId from interesting dump", () => {
+    expect(
+      preferredFocusCommands(["canvas.openAgentByConversationId", "foo"]),
+    ).toEqual(["canvas.openAgentByConversationId"]);
   });
 });

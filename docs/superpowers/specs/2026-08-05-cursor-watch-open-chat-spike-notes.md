@@ -16,14 +16,16 @@
 
 ## Command dump (composer / chat related)
 
-```text
-pending manual dump
+Cursor 3.13.25 — 176 interesting commands. **Key finds:**
 
-(VSIX installed via CLI: cursor-watch.cursor-watch-bridge.
-Live GUI dump requires Reload Window + Command Palette →
-"Cursors Watch Bridge: Dump composer/chat commands" —
-paste Output channel "Cursors Watch Bridge" here.)
-```
+- `canvas.openAgentByConversationId` ← primary candidate (was missing from first probe list)
+- `composer.getComposerHandleById`
+- `composer.focusComposer` / `composer.openComposer` / `composer.openChatAsEditor`
+- `workbench.action.backgroundComposer.openCloudAgentById` (cloud only)
+- `workbench.action.openAgentsView` / `composer.showComposerHistory`
+
+Full paste kept in user chat / extension Output. Probe updated to prefer `canvas.openAgentByConversationId` first.
+
 
 ## Attempts
 
