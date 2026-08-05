@@ -8,7 +8,8 @@
   "categories": ["Other"],
   "activationEvents": [
     "onCommand:cursor-watch.bridge.dumpCommands",
-    "onCommand:cursor-watch.bridge.focusById"
+    "onCommand:cursor-watch.bridge.focusById",
+    "onCommand:cursor-watch.bridge.focusCanvasOnly"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -20,6 +21,10 @@
       {
         "command": "cursor-watch.bridge.focusById",
         "title": "Cursors Watch Bridge: Focus chat by conversationId"
+      },
+      {
+        "command": "cursor-watch.bridge.focusCanvasOnly",
+        "title": "Cursors Watch Bridge: Focus via canvas.openAgentByConversationId only"
       }
     ]
   },

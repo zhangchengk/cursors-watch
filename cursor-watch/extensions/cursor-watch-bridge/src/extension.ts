@@ -1,9 +1,45 @@
 import * as vscode from "vscode";
-import { listInterestingCommands, probeFocusByConversationId } from "./focus-probe";
+import {
+  listInterestingCommands,
+  probeCanvasOpenOnly,
+  probeFocusByConversationId,
+} from "./focus-probe";
 import { classifySpikeVerdict } from "./spike-verdict";
 
 export function activate(context: vscode.ExtensionContext) {
   const out = vscode.window.createOutputChannel("Cursors Watch Bridge");
+
+  const confirmVisualFocus = async () => {
+    const pick = await vscode.window.showInformationMessage(
+      "Did the correct Agent chat focus?",
+      "Yes",
+      "No",
+    );
+    return pick === "Yes";
+  };
+
+  const runProbe = async (
+    title: string,
+    runner: typeof probeFocusByConversationId,
+  ) => {
+    const conversationId = await vscode.window.showInputBox({
+      prompt: `${title} — paste Watch conversationId (UUID)`,
+      placeHolder: "e.g. 4e1edc86-6661-4e22-a253-d493dc0886e3",
+    });
+    if (!conversationId?.trim()) return;
+
+    const attempts = await runner(conversationId.trim(), {
+      executeCommand: (c, ...a) => vscode.commands.executeCommand(c, ...a),
+      getCommands: (f) => vscode.commands.getCommands(f),
+      log: (line) => out.appendLine(line),
+      confirmVisualFocus,
+    });
+    const verdict = classifySpikeVerdict(attempts);
+    out.appendLine(`Verdict: ${verdict}`);
+    out.appendLine(JSON.stringify(attempts, null, 2));
+    out.show(true);
+    void vscode.window.showInformationMessage(`Spike verdict: ${verdict}`);
+  };
 
   context.subscriptions.push(
     out,
@@ -17,30 +53,11 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand("cursor-watch.bridge.focusById", async () => {
-      const conversationId = await vscode.window.showInputBox({
-        prompt: "conversationId / composerId",
-        placeHolder: "uuid from Watch card / composerHeaders",
-      });
-      if (!conversationId?.trim()) return;
+      await runProbe("Focus (multi)", probeFocusByConversationId);
+    }),
 
-      const attempts = await probeFocusByConversationId(conversationId.trim(), {
-        executeCommand: (c, ...a) => vscode.commands.executeCommand(c, ...a),
-        getCommands: (f) => vscode.commands.getCommands(f),
-        log: (line) => out.appendLine(line),
-        confirmVisualFocus: async () => {
-          const pick = await vscode.window.showInformationMessage(
-            "Did the correct Agent chat focus?",
-            "Yes",
-            "No",
-          );
-          return pick === "Yes";
-        },
-      });
-      const verdict = classifySpikeVerdict(attempts);
-      out.appendLine(`Verdict: ${verdict}`);
-      out.appendLine(JSON.stringify(attempts, null, 2));
-      out.show(true);
-      void vscode.window.showInformationMessage(`Spike verdict: ${verdict}`);
+    vscode.commands.registerCommand("cursor-watch.bridge.focusCanvasOnly", async () => {
+      await runProbe("Focus (canvas only)", probeCanvasOpenOnly);
     }),
   );
 }

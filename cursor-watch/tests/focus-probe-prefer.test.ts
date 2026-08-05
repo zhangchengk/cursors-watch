@@ -17,9 +17,12 @@ describe("preferredFocusCommands", () => {
     ]);
   });
 
-  it("also picks openAgentByConversationId from interesting dump", () => {
+  it("excludes cloud / backgroundComposer commands", () => {
     expect(
-      preferredFocusCommands(["canvas.openAgentByConversationId", "foo"]),
+      preferredFocusCommands([
+        "canvas.openAgentByConversationId",
+        "workbench.action.backgroundComposer.openCloudAgentById",
+      ]),
     ).toEqual(["canvas.openAgentByConversationId"]);
   });
 });
