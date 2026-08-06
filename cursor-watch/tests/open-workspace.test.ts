@@ -29,6 +29,13 @@ describe("isAllowedWorkspacePath", () => {
     expect(isAllowedWorkspacePath("/Users/u/idea/C", sessions)).toBe(false);
     expect(isAllowedWorkspacePath("", sessions)).toBe(false);
   });
+
+  it("allows extra reminder paths", () => {
+    const sessions = [sess("/Users/u/idea/A")];
+    expect(
+      isAllowedWorkspacePath("/Users/u/idea/C", sessions, ["/Users/u/idea/C"]),
+    ).toBe(true);
+  });
 });
 
 describe("openWorkspaceInCursor", () => {
@@ -53,5 +60,17 @@ describe("openWorkspaceInCursor", () => {
     });
     expect(r.ok).toBe(true);
     expect(spawn).toHaveBeenCalledWith(["/Users/u/idea/A"]);
+  });
+
+  it("spawns with -n when newWindow is true", async () => {
+    const spawn = vi.fn().mockResolvedValue(undefined);
+    const r = await openWorkspaceInCursor({
+      workspacePath: "/Users/u/idea/A",
+      sessions: [sess("/Users/u/idea/A")],
+      newWindow: true,
+      spawnCursor: spawn,
+    });
+    expect(r.ok).toBe(true);
+    expect(spawn).toHaveBeenCalledWith(["-n", "/Users/u/idea/A"]);
   });
 });

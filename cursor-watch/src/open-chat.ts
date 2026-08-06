@@ -1,44 +1,74 @@
 import type { BridgeHub } from "./bridge/hub.js";
 import type { BridgeFocusResult } from "./bridge/types.js";
 import {
+  activateCursorApp,
   isAllowedWorkspacePath,
   openWorkspaceInCursor,
   type OpenWorkspaceResult,
 } from "./open-workspace.js";
 import type { SessionState } from "./types.js";
 
-export type OpenChatStage = "workspace" | "bridge" | "focus";
+export type OpenChatStage = "workspace" | "bridge" | "focus" | "opened";
 
 export type OpenChatResult =
-  | { ok: true }
-  | { ok: false; stage: OpenChatStage; error: string; statusCode?: number };
+  | { ok: true; stage: "opened" }
+  | { ok: false; stage: Exclude<OpenChatStage, "opened">; error: string; statusCode?: number };
+
+export type OpenChatFocusResult =
+  | { ok: true; conversationId: string; workspacePath: string }
+  | { ok: false; conversationId: string; workspacePath: string; error: string };
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function openChatInCursor(opts: {
+export type OpenChatBridge = Pick<
+  BridgeHub,
+  | "isOnline"
+  | "focus"
+  | "hasClientForWorkspace"
+  | "clientIdsForWorkspace"
+  | "onlineClientIds"
+>;
+
+export type OpenChatDeps = {
   conversationId: string;
   workspacePath: string;
   sessions: SessionState[];
+  reminders?: Array<{ conversationId: string; workspacePath?: string }>;
   openWorkspace?: (args: {
     workspacePath: string;
     sessions: SessionState[];
+    extraAllowedPaths?: Iterable<string | undefined>;
+    newWindow?: boolean;
   }) => Promise<OpenWorkspaceResult>;
-  bridge: Pick<BridgeHub, "isOnline" | "focus" | "hasClientForWorkspace">;
+  activateCursor?: () => Promise<void>;
+  bridge: OpenChatBridge;
   sleep?: (ms: number) => Promise<void>;
-  retryDelayMs?: number;
-  /** After open workspace, wait for a bridge client that reports this folder */
-  workspaceBridgeWaitMs?: number;
-}): Promise<OpenChatResult> {
+  newClientWaitMs?: number;
+  deferFocus?: boolean;
+  onFocusResult?: (result: OpenChatFocusResult) => void;
+};
+
+function reminderPathsOf(
+  reminders: Array<{ workspacePath?: string }> | undefined,
+): string[] {
+  return (reminders ?? [])
+    .map((r) => r.workspacePath)
+    .filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+}
+
+function assertOpenChatTarget(opts: {
+  conversationId: string;
+  workspacePath: string;
+  sessions: SessionState[];
+  reminders?: Array<{ conversationId: string; workspacePath?: string }>;
+}): OpenChatResult | null {
   const conversationId = opts.conversationId?.trim() ?? "";
   const workspacePath = opts.workspacePath?.trim() ?? "";
-  const sleep = opts.sleep ?? defaultSleep;
-  const retryDelayMs = opts.retryDelayMs ?? 2500;
-  const workspaceBridgeWaitMs = opts.workspaceBridgeWaitMs ?? 4000;
-  const openWorkspace = opts.openWorkspace ?? openWorkspaceInCursor;
+  const paths = reminderPathsOf(opts.reminders);
 
-  if (!isAllowedWorkspacePath(workspacePath, opts.sessions)) {
+  if (!isAllowedWorkspacePath(workspacePath, opts.sessions, paths)) {
     return {
       ok: false,
       stage: "workspace",
@@ -50,7 +80,11 @@ export async function openChatInCursor(opts: {
   const session = opts.sessions.find(
     (s) => s.id === conversationId && s.workspacePath === workspacePath,
   );
-  if (!session) {
+  const reminder = (opts.reminders ?? []).find(
+    (r) =>
+      r.conversationId === conversationId && r.workspacePath === workspacePath,
+  );
+  if (!session && !reminder) {
     return {
       ok: false,
       stage: "focus",
@@ -58,74 +92,168 @@ export async function openChatInCursor(opts: {
       statusCode: 404,
     };
   }
+  return null;
+}
 
-  const ws1 = await openWorkspace({
-    workspacePath,
-    sessions: opts.sessions,
-  });
-  if (!ws1.ok) {
+/**
+ * Focus the target Agent chat via the bridge.
+ *
+ * When `clientsBefore` is provided (after spawning `-n`), prefer newly registered
+ * clients that report `workspacePath`. If Cursor did not actually create a new
+ * window (common when the folder is already open — `-n` is a no-op), fall back to
+ * any online client for that workspace so Chat still opens.
+ */
+export async function focusChatInNewWindow(opts: {
+  conversationId: string;
+  workspacePath: string;
+  clientsBefore?: ReadonlySet<string>;
+  bridge: OpenChatBridge;
+  sleep?: (ms: number) => Promise<void>;
+  newClientWaitMs?: number;
+}): Promise<OpenChatFocusResult> {
+  const conversationId = opts.conversationId.trim();
+  const workspacePath = opts.workspacePath.trim();
+  const sleep = opts.sleep ?? defaultSleep;
+  const newClientWaitMs = opts.newClientWaitMs ?? 12_000;
+  const before = opts.clientsBefore;
+
+  const newcomersForPath = (): string[] => {
+    if (!before) return [];
+    const online =
+      opts.bridge.onlineClientIds?.() ??
+      opts.bridge.clientIdsForWorkspace(workspacePath);
+    const withPath = new Set(opts.bridge.clientIdsForWorkspace(workspacePath));
+    return online.filter((id) => !before.has(id) && withPath.has(id));
+  };
+
+  const anyForPath = (): string[] =>
+    opts.bridge.clientIdsForWorkspace(workspacePath);
+
+  if (before) {
+    const deadline = Date.now() + newClientWaitMs;
+    while (newcomersForPath().length === 0 && Date.now() < deadline) {
+      // Folder already open: Cursor often never adds a new bridge client.
+      // Exit early once we still have the pre-existing workspace client.
+      if (anyForPath().some((id) => before.has(id)) && Date.now() > deadline - newClientWaitMs + 800) {
+        // After ~800ms with no newcomer, fall through to reuse existing.
+        break;
+      }
+      await sleep(100);
+    }
+  } else {
+    const deadline = Date.now() + Math.min(newClientWaitMs, 5000);
+    while (anyForPath().length === 0 && Date.now() < deadline) {
+      await sleep(100);
+    }
+  }
+
+  const newcomers = newcomersForPath();
+  let focusResult: BridgeFocusResult;
+  if (newcomers.length > 0) {
+    focusResult = await opts.bridge.focus({
+      conversationId,
+      workspacePath,
+      preferClientIds: newcomers,
+    });
+  } else if (anyForPath().length > 0) {
+    // Reuse existing window for this folder (Cursor `-n` no-op case).
+    focusResult = await opts.bridge.focus({ conversationId, workspacePath });
+  } else {
     return {
       ok: false,
-      stage: "workspace",
-      error: ws1.error,
-      statusCode: ws1.statusCode,
+      conversationId,
+      workspacePath,
+      error:
+        "已打开工程，未能定位 Chat（桥未就绪：请确认扩展已装并 Reload Window）",
     };
   }
 
-  // Prefer the Cursor window that already has this folder open.
-  const deadline = Date.now() + workspaceBridgeWaitMs;
-  while (
-    !opts.bridge.hasClientForWorkspace?.(workspacePath) &&
-    Date.now() < deadline
-  ) {
-    await sleep(200);
+  if (focusResult.ok) {
+    return { ok: true, conversationId, workspacePath };
   }
+  return {
+    ok: false,
+    conversationId,
+    workspacePath,
+    error:
+      ("error" in focusResult && focusResult.error) ||
+      "已打开工程，未能定位 Chat",
+  };
+}
 
-  if (!opts.bridge.isOnline(workspacePath) && !opts.bridge.isOnline()) {
-    await sleep(retryDelayMs);
-    if (!opts.bridge.isOnline(workspacePath) && !opts.bridge.isOnline()) {
+/**
+ * Phase 1 returns `opened` quickly; Phase 2 focuses in the background.
+ *
+ * Evidence: `cursor -n <already-open-folder>` does not create a second Cursor
+ * window / bridge client — so "always new window then only focus new client"
+ * never opens Chat. Strategy:
+ * 1. If workspace already bridged → activate + focus that window (no `-n`).
+ * 2. Else → `-n`, wait for client (new or any), then focus.
+ */
+export async function openChatInCursor(
+  opts: OpenChatDeps,
+): Promise<OpenChatResult> {
+  const conversationId = opts.conversationId?.trim() ?? "";
+  const workspacePath = opts.workspacePath?.trim() ?? "";
+  const openWorkspace = opts.openWorkspace ?? openWorkspaceInCursor;
+  const activateCursor = opts.activateCursor ?? (() => activateCursorApp());
+  const deferFocus = opts.deferFocus !== false;
+  const reminderPaths = reminderPathsOf(opts.reminders);
+
+  const denied = assertOpenChatTarget({
+    conversationId,
+    workspacePath,
+    sessions: opts.sessions,
+    reminders: opts.reminders,
+  });
+  if (denied) return denied;
+
+  const alreadyOpen = opts.bridge.hasClientForWorkspace(workspacePath);
+  const clientsBefore = alreadyOpen
+    ? undefined
+    : new Set(
+        opts.bridge.onlineClientIds?.() ??
+          opts.bridge.clientIdsForWorkspace(workspacePath),
+      );
+
+  if (!alreadyOpen) {
+    const ws1 = await openWorkspace({
+      workspacePath,
+      sessions: opts.sessions,
+      extraAllowedPaths: reminderPaths,
+      newWindow: true,
+    });
+    if (!ws1.ok) {
       return {
         ok: false,
-        stage: "bridge",
-        error: "桥未连接：请确认已装扩展且 Cursor 已打开",
+        stage: "workspace",
+        error: ws1.error,
+        statusCode: ws1.statusCode,
       };
     }
   }
 
-  const tryFocus = (): Promise<BridgeFocusResult> =>
-    opts.bridge.focus({ conversationId, workspacePath });
+  await activateCursor();
 
-  let focusResult = await tryFocus();
-  if (focusResult.ok) return { ok: true };
-
-  await sleep(retryDelayMs);
-  const ws2 = await openWorkspace({
-    workspacePath,
-    sessions: opts.sessions,
-  });
-  if (!ws2.ok) {
-    return {
-      ok: false,
-      stage: "workspace",
-      error: ws2.error,
-      statusCode: ws2.statusCode,
-    };
+  if (deferFocus) {
+    void focusChatInNewWindow({
+      conversationId,
+      workspacePath,
+      clientsBefore,
+      bridge: opts.bridge,
+      sleep: opts.sleep,
+      newClientWaitMs: opts.newClientWaitMs,
+    })
+      .then((r) => opts.onFocusResult?.(r))
+      .catch((err) => {
+        opts.onFocusResult?.({
+          ok: false,
+          conversationId,
+          workspacePath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 
-  const deadline2 = Date.now() + workspaceBridgeWaitMs;
-  while (
-    !opts.bridge.hasClientForWorkspace?.(workspacePath) &&
-    Date.now() < deadline2
-  ) {
-    await sleep(200);
-  }
-
-  focusResult = await tryFocus();
-  if (focusResult.ok) return { ok: true };
-
-  return {
-    ok: false,
-    stage: "focus",
-    error: "未能定位到 Chat",
-  };
+  return { ok: true, stage: "opened" };
 }

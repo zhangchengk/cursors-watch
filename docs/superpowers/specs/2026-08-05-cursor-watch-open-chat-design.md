@@ -44,11 +44,15 @@
 | 3 | 可行性闸门 | 先 Spike；失败则停或改标准（A） |
 | 4 | Spike 过线 | 真实 id 可重复聚焦；仅 CDP → 脆弱过线须再批 |
 | 5 | 默认组件 | hooks + 扩展默认装；启动轻量自检 |
-| 6 | 运行时失败 | 分原因：拉起重试 / id 硬失败 / focus 失败降级开工程（C） |
+| 6 | 运行时失败 | opened 成功但 focus 失败：保留新窗 + toast；**不**向旧窗 focus（2026-08-06） |
 | 7 | 入口 | 仅面板 `↗`（A） |
 | 8 | IPC | 扩展向 daemon 注册，API 转发（B） |
-| 9 | 多窗口顺序 | 先 `open -a Cursor <path>`，再 focus（A） |
+| 9 | 多窗口顺序 | **总是** `cursor -n <path>` 新开窗口，再 activate，再 focus（2026-08-06 grill：B） |
 | 10 | 实施方式 | 两阶段：Focus Spike → 再接线（方案 1） |
+| 11 | 体感成功 | ≤1s 切到 Cursor 新窗；Chat 可再晚 1–3s（两阶段 opened → focus） |
+| 12 | focus 失败 | 保留新窗 + toast；**绝不**向旧窗发 focus |
+| 13 | 无新桥 client | 只等新 client；超时停止，不降级旧窗 |
+| 14 | 白名单 | live sessions **或** pending Reminder 的 `workspacePath` / conversation |
 
 ## 3. 方案概述
 
@@ -58,6 +62,20 @@
 2. **产品（仅过线后）**：扩展注册 + `POST /api/open-chat` + 改 `↗` + App 捆绑安装与启动自检。
 
 不做「一次做满」或「Watch 写 state.vscdb / 纯 AppleScript」主路径。
+
+### 3.1 Open Chat jump 运行时（2026-08-06）
+
+```text
+↗ → 校验白名单（sessions ∪ reminders）
+  → snapshot bridge clientIds for workspace
+  → cursor -n <workspacePath>
+  → activate Cursor（open -a Cursor）
+  → HTTP 返回 { ok: true, stage: "opened" }   // 体感 ≤1s
+  → 后台：等待「新」bridge client（≤5s）
+       → 仅 preferClientIds=新 client 发 focus
+       → 成功：WS open-chat-result ok
+       → 超时/失败：WS open-chat-result fail（不打旧窗）
+```
 
 ## 4. Spike
 
@@ -86,32 +104,33 @@
 ### 5.1 点击流
 
 1. UI：`POST /api/open-chat`，body `{ conversationId, workspacePath }`。  
-2. 白名单：`workspacePath` 须属于当前已知会话（同 `open-workspace`）；`conversationId` 须匹配对应会话。  
-3. Daemon：先 `openWorkspaceInCursor(workspacePath)`。  
-4. 若桥已注册且健康：转发 `focus({ conversationId, workspacePath })`，有限超时。  
-5. 按 §5.3 分派 toast / 降级。
+2. 白名单：`workspacePath` 须属于当前 **sessions 或 pending reminders**；`conversationId` 须匹配对应 session 或 reminder。  
+3. Daemon Phase 1：`cursor -n <workspacePath>` → `activate Cursor` → 返回 `{ ok: true, stage: "opened" }`。  
+4. Daemon Phase 2（后台）：仅当出现 **新的** bridge client（相对打开前 snapshot）时，`focus({ conversationId, workspacePath, preferClientIds })`；结果经面板 WS `open-chat-result` 推送。  
+5. Toast：opened →「已打开 Cursor，正在定位 Chat」；focus 失败 →「已打开工程，未能定位 Chat…」（**不**向旧窗 focus）。
 
 ### 5.2 扩展 ↔ Daemon
 
 - `POST /api/bridge/register`（localhost）：能力版本、可选 nonce；heartbeat；退出注销。  
-- 多实例：以最新未过期 heartbeat 为准；focus 带 `workspacePath` 供扩展对齐窗口。  
+- 多实例：以最新未过期 heartbeat 为准；focus 带 `workspacePath` 供扩展对齐窗口；Open Chat jump **必须** `preferClientIds` 指向新窗。  
 - 启动自检可查询「桥是否在线」（与「扩展是否已安装」分开）。
 
 ### 5.3 失败分派
 
 | 情况 | 行为 |
 |------|------|
-| Cursor/桥不可达 | 尝试拉起 Cursor → 等待约 2–3s → 重试 focus 一次；仍失败 → 硬失败 toast |
+| 开工程（`-n`）失败 | 硬失败 toast（不进入 activate/focus） |
+| opened 成功但无新桥 client / focus 失败 | **保留新窗**；toast/WS 说明未能定位 Chat；**不**向旧窗 focus |
 | conversationId 无效/不存在 | 硬失败 |
-| 开工程成功但 focus 失败 | 降级：工程已开 + toast「未能定位到 Chat」 |
-| 开工程失败 | 硬失败（不进入 focus） |
+| 白名单外路径 | 403 |
 
-API 返回 `{ ok, stage, error }`，`stage` ∈ `workspace` | `bridge` | `focus`。
+API Phase 1 返回 `{ ok: true, stage: "opened" }` 或 `{ ok: false, stage, error }`，`stage` ∈ `workspace` | `bridge` | `focus` | `opened`。  
+Phase 2 经 WS：`{ type: "open-chat-result", payload: { ok, conversationId, workspacePath, error? } }`。
 
 ### 5.4 UI
 
-- 保留现有 `↗`；只调用 **`POST /api/open-chat`**（服务端内部先开工程再 focus；`/api/open-workspace` 可保留给其它用途，面板跳转不再直连它）。  
-- Toast 文案区分 §5.3 各类失败。
+- 保留现有 `↗`；只调用 **`POST /api/open-chat`**。  
+- Toast：opened / focus 失败文案见 §5.1；监听 WS `open-chat-result` 更新最终结果。
 
 ## 6. 默认安装与启动自检
 

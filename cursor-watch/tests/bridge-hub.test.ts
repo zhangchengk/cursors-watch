@@ -144,4 +144,95 @@ describe("BridgeHub", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/没有对应|工程/);
   });
+
+  it("clientIdsForWorkspace lists matching online clients", () => {
+    const hub = new BridgeHub({ heartbeatTtlMs: 10_000 });
+    hub.register(
+      "a",
+      {
+        extensionVersion: "0.1.1",
+        capabilities: ["canvas.openAgentByConversationId"],
+        workspacePaths: ["/Users/u/A"],
+      },
+      vi.fn(),
+    );
+    hub.register(
+      "b",
+      {
+        extensionVersion: "0.1.1",
+        capabilities: ["canvas.openAgentByConversationId"],
+        workspacePaths: ["/Users/u/B"],
+      },
+      vi.fn(),
+    );
+    hub.heartbeat("a");
+    hub.heartbeat("b");
+    expect(hub.clientIdsForWorkspace("/Users/u/A")).toEqual(["a"]);
+  });
+
+  it("focus preferClientIds routes to the new window client", async () => {
+    const hub = new BridgeHub({ focusTimeoutMs: 1_000 });
+    const sendOld = vi.fn();
+    const sendNew = vi.fn((msg: unknown) => {
+      const m = msg as { type: string; requestId: string };
+      if (m.type === "focus") {
+        hub.onClientMessage("c-new", {
+          type: "focus-result",
+          requestId: m.requestId,
+          ok: true,
+        });
+      }
+    });
+    hub.register(
+      "c-old",
+      {
+        extensionVersion: "0.1.1",
+        capabilities: ["canvas.openAgentByConversationId"],
+        workspacePaths: ["/Users/u/A"],
+      },
+      sendOld,
+    );
+    hub.heartbeat("c-old", ["/Users/u/A"]);
+    hub.register(
+      "c-new",
+      {
+        extensionVersion: "0.1.1",
+        capabilities: ["canvas.openAgentByConversationId"],
+        workspacePaths: ["/Users/u/A"],
+      },
+      sendNew,
+    );
+    hub.heartbeat("c-new", ["/Users/u/A"]);
+
+    const r = await hub.focus({
+      conversationId: "abc",
+      workspacePath: "/Users/u/A",
+      preferClientIds: ["c-new"],
+    });
+    expect(r).toEqual({ ok: true });
+    expect(sendNew).toHaveBeenCalled();
+    expect(sendOld).not.toHaveBeenCalled();
+  });
+
+  it("focus with preferClientIds does not fall back to old window", async () => {
+    const hub = new BridgeHub({ focusTimeoutMs: 200 });
+    const sendOld = vi.fn();
+    hub.register(
+      "c-old",
+      {
+        extensionVersion: "0.1.1",
+        capabilities: ["canvas.openAgentByConversationId"],
+        workspacePaths: ["/Users/u/A"],
+      },
+      sendOld,
+    );
+    hub.heartbeat("c-old", ["/Users/u/A"]);
+    const r = await hub.focus({
+      conversationId: "abc",
+      workspacePath: "/Users/u/A",
+      preferClientIds: ["c-missing"],
+    });
+    expect(r.ok).toBe(false);
+    expect(sendOld).not.toHaveBeenCalled();
+  });
 });

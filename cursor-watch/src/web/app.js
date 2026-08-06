@@ -45,6 +45,9 @@ let deepLinkHandled = false;
 let ackAllInFlight = false;
 
 let toastTimer = null;
+/** conversationIds awaiting WS open-chat-result after Phase-1 opened */
+const pendingOpenChats = new Set();
+
 function showToast(message) {
   if (!toastEl) return;
   toastEl.textContent = message;
@@ -62,6 +65,7 @@ async function openInCursor(session) {
     showToast("缺少会话或工程路径");
     return;
   }
+  pendingOpenChats.add(conversationId);
   try {
     const res = await fetch("/api/open-chat", {
       method: "POST",
@@ -70,19 +74,23 @@ async function openInCursor(session) {
     });
     const data = await res.json().catch(() => ({}));
     if (data.ok) {
-      showToast("已在 Cursor 中打开对应 Chat");
+      showToast(
+        data.stage === "opened"
+          ? "已打开 Cursor，正在定位 Chat"
+          : "已在 Cursor 中打开对应 Chat",
+      );
       return;
     }
+    pendingOpenChats.delete(conversationId);
     if (data.stage === "workspace") {
       showToast(data.error || "打开工程失败");
-    } else if (data.stage === "bridge") {
-      showToast(data.error || "桥未连接：请确认已装扩展且 Cursor 已打开");
     } else if (data.stage === "focus") {
       showToast(data.error || "未能定位到 Chat（工程可能已打开）");
     } else {
       showToast(data.error || `打开失败 (${res.status})`);
     }
   } catch (err) {
+    pendingOpenChats.delete(conversationId);
     showToast(err instanceof Error ? err.message : "打开失败");
   }
 }
@@ -637,6 +645,16 @@ function connectWs() {
       render(msg.payload);
     } else if (msg.type === "reminders") {
       renderInbox(msg.payload);
+    } else if (msg.type === "open-chat-result") {
+      const p = msg.payload || {};
+      const id = typeof p.conversationId === "string" ? p.conversationId : "";
+      if (id && !pendingOpenChats.has(id)) return;
+      if (id) pendingOpenChats.delete(id);
+      if (p.ok) {
+        showToast("已定位到对应 Chat");
+      } else {
+        showToast(p.error || "已打开工程，未能定位 Chat");
+      }
     }
   };
   ws.onclose = () => {

@@ -79,3 +79,11 @@ _Avoid_: 以「Cursor 在前台」作为不提醒条件
 **Menubar shell（菜单栏壳）**:
 用户期望的「装成一个 APP」形态：登录 Mac 后常驻；菜单栏入口托管 daemon，并用原生窗口（WKWebView）承载收件箱优先面板，而不是每次手动起服务再开浏览器。实现倾向：薄 Swift 壳，不重写面板；**交付形态内嵌 Node 运行时与 cursor-watch**，不依赖本机仓库路径或临时 `npx`。
 _Avoid_: 仅文档里写启动命令、把「打开浏览器」当成唯一日常入口、用 Electron 整包重做面板（除非另有决策）、交付后仍要求用户自备 Node/仓库
+
+**Open Chat jump（打开对应 Chat）**:
+面板 `↗` 的承诺：打开/聚焦目标 Agent Chat，并尽量不拆掉用户当前正在看的其它 Chat 标签（优先激活已有标签，否则以新标签打开）。
+_Avoid_: 只打开工程不定位 Chat、把「切到 Cursor 前台」当成已定位 Chat、故意用原地导航顶掉当前 Chat 标签
+
+**Two-phase open（两阶段打开）**:
+Open Chat jump 的交付节奏：先尽快把 Cursor 新窗拉到前台（opened），再在后台仅对该新窗做 Chat focus；两阶段可分别成功或失败。
+_Avoid_: 等 Chat focus 完成后才切前台、focus 失败时回退到旧窗发 focus

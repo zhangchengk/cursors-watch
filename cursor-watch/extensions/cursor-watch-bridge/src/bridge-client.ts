@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-const CAPABILITY = "canvas.openAgentByConversationId";
+const CAPABILITY = "canvas.openAgentByConversationId"; // register capability only; not used for focus
 
 export type BridgeClientOptions = {
   port?: number;
@@ -21,7 +21,12 @@ function defaultWorkspacePaths(): string[] {
 export function startBridgeClient(opts: BridgeClientOptions): { dispose: () => void } {
   const port =
     opts.port ?? (Number(process.env.CURSOR_WATCH_PORT || "7423") || 7423);
-  const clientId = opts.clientId ?? `ext-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const clientId =
+    opts.clientId ??
+    (typeof vscode.env.sessionId === "string" && vscode.env.sessionId.trim()
+      ? `ext-session-${vscode.env.sessionId}`
+      : `ext-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+
   const getWorkspacePaths = opts.getWorkspacePaths ?? defaultWorkspacePaths;
   let ws: WebSocket | null = null;
   let disposed = false;
@@ -170,8 +175,59 @@ export function startBridgeClient(opts: BridgeClientOptions): { dispose: () => v
   };
 }
 
+function tabUri(tab: vscode.Tab): vscode.Uri | undefined {
+  const input = tab.input as { uri?: vscode.Uri } | undefined;
+  if (input && typeof input === "object" && input.uri instanceof vscode.Uri) {
+    return input.uri;
+  }
+  return undefined;
+}
+
+/** If the chat is already an editor tab, reveal it instead of replacing the active one. */
+export async function revealExistingComposerTab(
+  conversationId: string,
+): Promise<boolean> {
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const uri = tabUri(tab);
+      if (!uri) continue;
+      const blob = `${uri.scheme}:${uri.path}?${uri.query}#${uri.fragment}`;
+      if (!blob.includes(conversationId)) continue;
+      try {
+        await vscode.commands.executeCommand("vscode.open", uri);
+        return true;
+      } catch {
+        try {
+          await vscode.window.showTextDocument(uri, { preview: false, preserveFocus: false });
+          return true;
+        } catch {
+          /* try next */
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Open / focus Agent chat without clobbering the currently active chat tab.
+ *
+ * Only:
+ * 1) reveal existing tab if already open
+ * 2) openComposer with openInNewTab
+ *
+ * Never falls back to canvas.openAgentByConversationId (in-place replace).
+ */
 export async function focusLocalAgentByConversationId(
   conversationId: string,
 ): Promise<void> {
-  await vscode.commands.executeCommand(CAPABILITY, conversationId);
+  if (await revealExistingComposerTab(conversationId)) {
+    return;
+  }
+
+  // Command signature is (composerId: string, opts?), NOT {type,id,...}
+  // (object-as-first-arg → Cursor minified "n.startsWith is not a function").
+  await vscode.commands.executeCommand("composer.openComposer", conversationId, {
+    openInNewTab: true,
+  });
 }

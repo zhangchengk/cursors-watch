@@ -363,6 +363,37 @@ describe("POST /api/open-chat", () => {
     }
   });
 
+  it("allows reminder workspacePath not in live sessions (still validates id)", async () => {
+    const store = new SessionStore();
+    const home = tempHome();
+    upsertPendingReminder(home, {
+      conversationId: "rem-1",
+      workspacePath: "/Users/u/old",
+      turnedEndedAt: Date.now(),
+      summary: "done",
+    });
+    const reminderHub = new ReminderHub(home);
+    const bridgeHub = new BridgeHub();
+    const app = await buildServer(store, { homeDir: home, bridgeHub, reminderHub });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const missing = await app.inject({
+        method: "POST",
+        url: "/api/open-chat",
+        payload: { conversationId: "nope", workspacePath: "/Users/u/old" },
+      });
+      expect(missing.statusCode).toBe(404);
+      const forbidden = await app.inject({
+        method: "POST",
+        url: "/api/open-chat",
+        payload: { conversationId: "rem-1", workspacePath: "/evil" },
+      });
+      expect(forbidden.statusCode).toBe(403);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("GET /api/bridge-status reflects hub", async () => {
     const store = new SessionStore();
     const home = tempHome();
@@ -379,7 +410,11 @@ describe("POST /api/open-chat", () => {
       );
       bridgeHub.heartbeat("ext");
       const online = await app.inject({ method: "GET", url: "/api/bridge-status" });
-      expect(online.json()).toEqual({ online: true, extensionVersion: "0.1.0" });
+      expect(online.json()).toEqual({
+        online: true,
+        extensionVersion: "0.1.0",
+        workspaces: [],
+      });
     } finally {
       await app.close();
     }

@@ -25,6 +25,18 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
   const homeDir = opts?.homeDir ?? os.homedir();
   const reminderHub = opts?.reminderHub ?? new ReminderHub(homeDir);
   const bridgeHub = opts?.bridgeHub ?? new BridgeHub();
+  const panelSockets = new Set<{ send: (data: string) => void }>();
+
+  const broadcastPanel = (msg: unknown) => {
+    const raw = JSON.stringify(msg);
+    for (const socket of panelSockets) {
+      try {
+        socket.send(raw);
+      } catch {
+        /* closed */
+      }
+    }
+  };
 
   const app = Fastify({ logger: false });
   await app.register(websocket);
@@ -63,6 +75,10 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
     const result = await openWorkspaceInCursor({
       workspacePath,
       sessions: store.getSessions(),
+      extraAllowedPaths: reminderHub
+        .listPending()
+        .map((r) => r.workspacePath)
+        .filter((p): p is string => typeof p === "string" && p.trim().length > 0),
     });
     if (!result.ok) {
       return reply.code(result.statusCode ?? 400).send({ ok: false, error: result.error });
@@ -88,18 +104,37 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
         conversationId,
         workspacePath,
         sessions: store.getSessions(),
+        reminders: reminderHub.listPending(),
         bridge: bridgeHub,
+        onFocusResult: (focusResult) => {
+          broadcastPanel({
+            type: "open-chat-result",
+            payload: focusResult.ok
+              ? {
+                  ok: true,
+                  conversationId: focusResult.conversationId,
+                  workspacePath: focusResult.workspacePath,
+                }
+              : {
+                  ok: false,
+                  conversationId: focusResult.conversationId,
+                  workspacePath: focusResult.workspacePath,
+                  error: focusResult.error,
+                },
+          });
+        },
       });
       if (!result.ok) {
         return reply
           .code(result.statusCode ?? 400)
           .send({ ok: false, stage: result.stage, error: result.error });
       }
-      return { ok: true };
+      return { ok: true, stage: result.stage };
     },
   );
 
   app.get("/ws", { websocket: true }, (socket) => {
+    panelSockets.add(socket);
     const sendSessions = () => {
       socket.send(JSON.stringify({ type: "sessions", payload: store.getSessions() }));
     };
@@ -111,6 +146,7 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
     const unsubSessions = store.subscribe(() => sendSessions());
     const unsubReminders = reminderHub.subscribe(() => sendReminders());
     socket.on("close", () => {
+      panelSockets.delete(socket);
       unsubSessions();
       unsubReminders();
     });

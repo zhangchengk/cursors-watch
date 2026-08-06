@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { openChatInCursor } from "../src/open-chat.js";
+import { focusChatInNewWindow, openChatInCursor } from "../src/open-chat.js";
 import type { SessionState } from "../src/types.js";
 
 function sess(over: Partial<SessionState> & Pick<SessionState, "id" | "workspacePath">): SessionState {
@@ -18,129 +18,161 @@ function sess(over: Partial<SessionState> & Pick<SessionState, "id" | "workspace
   };
 }
 
+function bridgeStub(over: {
+  focus?: ReturnType<typeof vi.fn>;
+  hasClientForWorkspace?: (p: string) => boolean;
+  clientIdsForWorkspace?: (p: string) => string[];
+  onlineClientIds?: () => string[];
+  isOnline?: () => boolean;
+}) {
+  return {
+    isOnline: over.isOnline ?? (() => true),
+    focus: over.focus ?? vi.fn().mockResolvedValue({ ok: true }),
+    hasClientForWorkspace: over.hasClientForWorkspace ?? (() => true),
+    clientIdsForWorkspace: over.clientIdsForWorkspace ?? (() => ["c-old"]),
+    onlineClientIds: over.onlineClientIds ?? (() => ["c-old"]),
+  };
+}
+
 describe("openChatInCursor", () => {
   it("404 when conversationId not found for path", async () => {
     const r = await openChatInCursor({
       conversationId: "missing",
       workspacePath: "/Users/u/A",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
-      bridge: {
-        isOnline: () => true,
-        focus: vi.fn(),
-        hasClientForWorkspace: () => true,
-      },
+      bridge: bridgeStub({}),
       openWorkspace: vi.fn(),
-      workspaceBridgeWaitMs: 0,
+      activateCursor: vi.fn(),
+      deferFocus: false,
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.stage).toBe("focus");
-      expect(r.statusCode).toBe(404);
-    }
+    if (!r.ok) expect(r.statusCode).toBe(404);
   });
 
-  it("403 when workspace path not allow-listed", async () => {
-    const r = await openChatInCursor({
-      conversationId: "real",
-      workspacePath: "/evil",
-      sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
-      bridge: {
-        isOnline: () => true,
-        focus: vi.fn(),
-        hasClientForWorkspace: () => true,
-      },
-      openWorkspace: vi.fn(),
-      workspaceBridgeWaitMs: 0,
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.stage).toBe("workspace");
-      expect(r.statusCode).toBe(403);
-    }
-  });
-
-  it("stage workspace when openWorkspace fails", async () => {
-    const r = await openChatInCursor({
-      conversationId: "real",
-      workspacePath: "/Users/u/A",
-      sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
-      bridge: {
-        isOnline: () => true,
-        focus: vi.fn(),
-        hasClientForWorkspace: () => true,
-      },
-      openWorkspace: vi.fn().mockResolvedValue({ ok: false, error: "boom", statusCode: 500 }),
-      workspaceBridgeWaitMs: 0,
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.stage).toBe("workspace");
-  });
-
-  it("stage bridge when offline after wait", async () => {
-    const sleep = vi.fn().mockResolvedValue(undefined);
-    const r = await openChatInCursor({
-      conversationId: "real",
-      workspacePath: "/Users/u/A",
-      sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
-      openWorkspace: vi.fn().mockResolvedValue({ ok: true }),
-      bridge: {
-        isOnline: () => false,
-        focus: vi.fn(),
-        hasClientForWorkspace: () => false,
-      },
-      sleep,
-      retryDelayMs: 10,
-      workspaceBridgeWaitMs: 0,
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.stage).toBe("bridge");
-    expect(sleep).toHaveBeenCalled();
-  });
-
-  it("stage focus when focus fails after retry", async () => {
-    const focus = vi.fn().mockResolvedValue({ ok: false, error: "nope" });
+  it("skips -n when workspace already bridged; still activates and focuses", async () => {
     const openWorkspace = vi.fn().mockResolvedValue({ ok: true });
+    const activateCursor = vi.fn().mockResolvedValue(undefined);
+    const focus = vi.fn().mockResolvedValue({ ok: true });
+    const onFocusResult = vi.fn();
     const r = await openChatInCursor({
       conversationId: "real",
       workspacePath: "/Users/u/A",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
       openWorkspace,
-      bridge: {
-        isOnline: () => true,
+      activateCursor,
+      onFocusResult,
+      bridge: bridgeStub({
         focus,
         hasClientForWorkspace: () => true,
-      },
-      sleep: vi.fn().mockResolvedValue(undefined),
-      retryDelayMs: 5,
-      workspaceBridgeWaitMs: 0,
+        clientIdsForWorkspace: () => ["c-old"],
+        onlineClientIds: () => ["c-old"],
+      }),
     });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.stage).toBe("focus");
-      expect(r.error).toMatch(/未能定位到 Chat/);
-    }
-    expect(focus).toHaveBeenCalledTimes(2);
-    expect(openWorkspace).toHaveBeenCalledTimes(2);
+    expect(r).toEqual({ ok: true, stage: "opened" });
+    expect(openWorkspace).not.toHaveBeenCalled();
+    expect(activateCursor).toHaveBeenCalled();
+    await vi.waitFor(() => expect(onFocusResult).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: true }),
+    ));
+    expect(focus).toHaveBeenCalledWith({
+      conversationId: "real",
+      workspacePath: "/Users/u/A",
+    });
   });
 
-  it("ok on happy path", async () => {
+  it("opens -n when workspace not bridged", async () => {
+    const openWorkspace = vi.fn().mockResolvedValue({ ok: true });
     const focus = vi.fn().mockResolvedValue({ ok: true });
+    let ids: string[] = [];
+    let has = false;
     const r = await openChatInCursor({
       conversationId: "real",
       workspacePath: "/Users/u/A",
       sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
-      openWorkspace: vi.fn().mockResolvedValue({ ok: true }),
-      bridge: {
-        isOnline: () => true,
+      openWorkspace,
+      activateCursor: vi.fn().mockResolvedValue(undefined),
+      onFocusResult: vi.fn(),
+      bridge: bridgeStub({
         focus,
-        hasClientForWorkspace: () => true,
-      },
-      workspaceBridgeWaitMs: 0,
+        hasClientForWorkspace: () => has,
+        clientIdsForWorkspace: () => ids,
+        onlineClientIds: () => ids,
+      }),
+      sleep: vi.fn().mockImplementation(async () => {
+        has = true;
+        ids = ["c-new"];
+      }),
+      newClientWaitMs: 500,
     });
-    expect(r).toEqual({ ok: true });
+    expect(r).toEqual({ ok: true, stage: "opened" });
+    expect(openWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ newWindow: true }),
+    );
+  });
+
+  it("allows reminder-only workspace paths", async () => {
+    const r = await openChatInCursor({
+      conversationId: "rem-1",
+      workspacePath: "/Users/u/old",
+      sessions: [sess({ id: "other", workspacePath: "/Users/u/A" })],
+      reminders: [{ conversationId: "rem-1", workspacePath: "/Users/u/old" }],
+      openWorkspace: vi.fn().mockResolvedValue({ ok: true }),
+      activateCursor: vi.fn().mockResolvedValue(undefined),
+      bridge: bridgeStub({
+        hasClientForWorkspace: () => false,
+        clientIdsForWorkspace: () => [],
+        onlineClientIds: () => [],
+      }),
+      deferFocus: false,
+    });
+    expect(r).toEqual({ ok: true, stage: "opened" });
+  });
+});
+
+describe("focusChatInNewWindow", () => {
+  it("reuses existing workspace client when -n did not add a newcomer", async () => {
+    const focus = vi.fn().mockResolvedValue({ ok: true });
+    const r = await focusChatInNewWindow({
+      conversationId: "real",
+      workspacePath: "/Users/u/A",
+      clientsBefore: new Set(["c-old"]),
+      bridge: bridgeStub({
+        focus,
+        clientIdsForWorkspace: () => ["c-old"],
+        onlineClientIds: () => ["c-old"],
+      }),
+      sleep: vi.fn().mockResolvedValue(undefined),
+      newClientWaitMs: 900,
+    });
+    expect(r.ok).toBe(true);
     expect(focus).toHaveBeenCalledWith({
       conversationId: "real",
       workspacePath: "/Users/u/A",
+    });
+  });
+
+  it("prefers newcomer clients when they appear", async () => {
+    const focus = vi.fn().mockResolvedValue({ ok: true });
+    let ids = ["c-old"];
+    const r = await focusChatInNewWindow({
+      conversationId: "real",
+      workspacePath: "/Users/u/A",
+      clientsBefore: new Set(["c-old"]),
+      bridge: bridgeStub({
+        focus,
+        clientIdsForWorkspace: () => ids,
+        onlineClientIds: () => ids,
+      }),
+      sleep: vi.fn().mockImplementation(async () => {
+        ids = ["c-old", "c-new"];
+      }),
+      newClientWaitMs: 500,
+    });
+    expect(r.ok).toBe(true);
+    expect(focus).toHaveBeenCalledWith({
+      conversationId: "real",
+      workspacePath: "/Users/u/A",
+      preferClientIds: ["c-new"],
     });
   });
 });

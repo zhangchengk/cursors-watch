@@ -72,4 +72,27 @@ describe("ensureWatchComponents", () => {
     expect(status.extensionInstalled).toBe(true);
     expect(status.extensionVersion).toBe("0.1.0");
   });
+
+  it("upgrades when installed version is older than bundled vsix", async () => {
+    const home = tempHome();
+    installHooks(home);
+    const installExtension = vi.fn().mockResolvedValue(undefined);
+    let listed = false;
+    const status = await ensureWatchComponents({
+      homeDir: home,
+      bundledVsixPath: "/tmp/cursor-watch-bridge-0.1.2.vsix",
+      installExtension,
+      listExt: async () => {
+        if (!listed) {
+          listed = true;
+          return ["cursor-watch.cursor-watch-bridge@0.1.1"];
+        }
+        return ["cursor-watch.cursor-watch-bridge@0.1.2"];
+      },
+    });
+    expect(installExtension).toHaveBeenCalledWith(
+      "/tmp/cursor-watch-bridge-0.1.2.vsix",
+    );
+    expect(status.extensionVersion).toBe("0.1.2");
+  });
 });

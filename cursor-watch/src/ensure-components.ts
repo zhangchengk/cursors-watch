@@ -80,6 +80,28 @@ function parseExtensionLine(
   return { installed: true };
 }
 
+/** Best-effort compare dotted versions; returns true when `a` is older than `b`. */
+export function isVersionOlder(a: string | undefined, b: string | undefined): boolean {
+  if (!b) return false;
+  if (!a) return true;
+  const pa = a.split(".").map((x) => Number.parseInt(x, 10) || 0);
+  const pb = b.split(".").map((x) => Number.parseInt(x, 10) || 0);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da < db) return true;
+    if (da > db) return false;
+  }
+  return false;
+}
+
+export function versionFromVsixPath(vsixPath: string): string | undefined {
+  const base = path.basename(vsixPath);
+  const m = base.match(/-(\d+\.\d+\.\d+)\.vsix$/i);
+  return m?.[1];
+}
+
 export async function ensureWatchComponents(opts?: {
   homeDir?: string;
   cursorBin?: string;
@@ -106,6 +128,9 @@ export async function ensureWatchComponents(opts?: {
   const cursorBin =
     opts?.cursorBin ??
     "/Applications/Cursor.app/Contents/Resources/app/bin/cursor";
+  const bundledVersion = bundledVsixPath
+    ? versionFromVsixPath(bundledVsixPath)
+    : undefined;
 
   let extensionInstalled = false;
   let extensionVersion: string | undefined;
@@ -120,12 +145,9 @@ export async function ensureWatchComponents(opts?: {
     const needInstall =
       Boolean(bundledVsixPath) &&
       (!extensionInstalled ||
-        (extensionVersion &&
-          bundledVsixPath &&
-          !extensionVersion.startsWith("0.1")));
+        isVersionOlder(extensionVersion, bundledVersion));
 
-    // Install when missing; force refresh when bundled vsix exists and not installed.
-    if (bundledVsixPath && !extensionInstalled) {
+    if (needInstall && bundledVsixPath) {
       const install =
         opts?.installExtension ??
         ((vsix: string) => defaultInstallExtension(vsix, cursorBin));
@@ -136,9 +158,6 @@ export async function ensureWatchComponents(opts?: {
       const p2 = parseExtensionLine(again);
       extensionInstalled = p2.installed;
       extensionVersion = p2.version;
-    } else if (needInstall && bundledVsixPath && opts?.installExtension) {
-      // test seam for outdated upgrade path
-      await opts.installExtension(bundledVsixPath);
     }
   } catch (err) {
     errors.push(err instanceof Error ? err.message : String(err));

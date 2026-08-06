@@ -75,21 +75,93 @@ export class BridgeHub {
     return this.pickOnlineClient(workspacePath, { requireWorkspaceMatch: true }) !== null;
   }
 
-  status(): { online: boolean; extensionVersion?: string } {
+  /** Online bridge client ids whose workspacePaths include this folder. */
+  clientIdsForWorkspace(workspacePath: string): string[] {
+    const now = this.now();
+    const out: string[] = [];
+    for (const [clientId, client] of this.clients) {
+      if (now - client.lastHeartbeatAt > this.heartbeatTtlMs) continue;
+      if (
+        !client.info.capabilities.includes("canvas.openAgentByConversationId")
+      ) {
+        continue;
+      }
+      if (workspacePathsMatch(workspacePath, client.info.workspacePaths)) {
+        out.push(clientId);
+      }
+    }
+    return out;
+  }
+
+  /** All online bridge clients that can focus (any workspace, including empty). */
+  onlineClientIds(): string[] {
+    const now = this.now();
+    const out: string[] = [];
+    for (const [clientId, client] of this.clients) {
+      if (now - client.lastHeartbeatAt > this.heartbeatTtlMs) continue;
+      if (
+        !client.info.capabilities.includes("canvas.openAgentByConversationId")
+      ) {
+        continue;
+      }
+      out.push(clientId);
+    }
+    return out;
+  }
+
+  status(): { online: boolean; extensionVersion?: string; workspaces?: string[] } {
     const picked = this.pickOnlineClient();
     if (!picked) return { online: false };
-    return { online: true, extensionVersion: picked.client.info.extensionVersion };
+    const workspaces = [
+      ...new Set(
+        [...this.clients.values()]
+          .filter((c) => this.now() - c.lastHeartbeatAt <= this.heartbeatTtlMs)
+          .flatMap((c) => c.info.workspacePaths ?? []),
+      ),
+    ];
+    return {
+      online: true,
+      extensionVersion: picked.client.info.extensionVersion,
+      workspaces,
+    };
   }
 
   async focus(req: {
     conversationId: string;
     workspacePath: string;
+    /** Prefer these bridge client ids (e.g. freshly opened window). */
+    preferClientIds?: string[];
   }): Promise<BridgeFocusResult> {
+    const prefer = (req.preferClientIds ?? [])
+      .map((id) => id.trim())
+      .filter(Boolean);
+
     // Prefer workspace-matched window. Only fall back to any online client when
     // no client has reported workspacePaths yet (legacy / empty window).
     let picked = this.pickOnlineClient(req.workspacePath, {
       requireWorkspaceMatch: true,
+      preferClientIds: prefer,
     });
+
+    // Open Chat jump: when caller requires a specific new-window client and it
+    // is gone, do NOT fall back to an older window (would replace that Chat).
+    if (prefer.length > 0 && !picked) {
+      return {
+        ok: false,
+        error: "目标新窗口桥已断开，未改动其它 Cursor 窗口",
+      };
+    }
+    // If prefer was set and pickOnlineClient returned a non-preferred match
+    // because preferred ids were offline — pickOnlineClient only returns
+    // bestPreferred when prefer is non-empty and matched; otherwise bestMatch.
+    // Guard: when prefer was requested, only accept preferred clients.
+    if (prefer.length > 0 && picked && !prefer.includes(picked.clientId)) {
+      return {
+        ok: false,
+        error: "目标新窗口桥已断开，未改动其它 Cursor 窗口",
+      };
+    }
+
     if (!picked) {
       const anyWithPaths = this.anyOnlineClientReportingWorkspaces();
       if (anyWithPaths) {
@@ -98,7 +170,9 @@ export class BridgeHub {
           error: "没有对应该工程的 Cursor 窗口（请先打开该文件夹）",
         };
       }
-      picked = this.pickOnlineClient();
+      picked = this.pickOnlineClient(undefined, {
+        preferClientIds: prefer,
+      });
     }
     if (!picked) {
       return { ok: false, error: "桥未连接" };
@@ -178,10 +252,17 @@ export class BridgeHub {
 
   private pickOnlineClient(
     preferredWorkspace?: string,
-    opts?: { requireWorkspaceMatch?: boolean },
+    opts?: {
+      requireWorkspaceMatch?: boolean;
+      preferClientIds?: string[];
+    },
   ): { clientId: string; client: Client } | null {
     const now = this.now();
     const requireMatch = opts?.requireWorkspaceMatch === true;
+    const prefer = new Set(
+      (opts?.preferClientIds ?? []).map((id) => id.trim()).filter(Boolean),
+    );
+    let bestPreferred: { clientId: string; client: Client } | null = null;
     let bestMatch: { clientId: string; client: Client } | null = null;
     let bestAny: { clientId: string; client: Client } | null = null;
 
@@ -195,19 +276,37 @@ export class BridgeHub {
       if (!bestAny || client.lastHeartbeatAt > bestAny.client.lastHeartbeatAt) {
         bestAny = { clientId, client };
       }
-      if (
-        preferredWorkspace &&
-        workspacePathsMatch(preferredWorkspace, client.info.workspacePaths)
-      ) {
+      const matchesWs =
+        !!preferredWorkspace &&
+        workspacePathsMatch(preferredWorkspace, client.info.workspacePaths);
+      if (matchesWs) {
         if (
           !bestMatch ||
           client.lastHeartbeatAt > bestMatch.client.lastHeartbeatAt
         ) {
           bestMatch = { clientId, client };
         }
+        if (prefer.has(clientId)) {
+          if (
+            !bestPreferred ||
+            client.lastHeartbeatAt > bestPreferred.client.lastHeartbeatAt
+          ) {
+            bestPreferred = { clientId, client };
+          }
+        }
+      } else if (!preferredWorkspace && prefer.has(clientId)) {
+        if (
+          !bestPreferred ||
+          client.lastHeartbeatAt > bestPreferred.client.lastHeartbeatAt
+        ) {
+          bestPreferred = { clientId, client };
+        }
       }
     }
 
+    if (bestPreferred) return bestPreferred;
+    // When caller asked for specific clients, never silently fall back.
+    if (prefer.size > 0) return null;
     if (requireMatch) return bestMatch;
     return bestMatch ?? bestAny;
   }
