@@ -800,11 +800,21 @@ async function submitMarkDialog() {
 function renderLibraryPane(mark) {
   const treeEl = document.getElementById(mark === "todo" ? "todoTree" : "archiveTree");
   const listElLib = document.getElementById(mark === "todo" ? "todoList" : "archiveList");
+  const stageHead = document.getElementById(mark === "todo" ? "todoStageHead" : "archiveStageHead");
   if (!treeEl || !listElLib) return;
 
   const selectedFolder = libraryFolderFilter[mark];
   const folders = foldersForMark(latestLibrary.folders || [], mark);
   const tree = buildFolderTree(folders);
+  const selectedName =
+    selectedFolder == null
+      ? "未归组"
+      : folders.find((f) => f.id === selectedFolder)?.name || "文件夹";
+  if (stageHead) {
+    stageHead.innerHTML = `<strong>${escapeHtml(selectedName)}</strong> · ${
+      mark === "todo" ? "代办" : "归档"
+    }`;
+  }
 
   function renderNodes(nodes) {
     return nodes
@@ -820,9 +830,9 @@ function renderLibraryPane(mark) {
 
   treeEl.innerHTML = `
     <div class="library-tree-actions">
-      <button type="button" data-action="new-folder">新建文件夹</button>
+      <button type="button" data-action="new-folder">新建</button>
       <button type="button" data-action="rename-folder">重命名</button>
-      <button type="button" data-action="delete-folder">删除文件夹</button>
+      <button type="button" data-action="delete-folder">删除</button>
     </div>
     <button type="button" class="library-unfiled-btn${selectedFolder == null ? " is-selected" : ""}" data-folder-id="">未归组</button>
     ${renderNodes(tree)}
@@ -836,28 +846,25 @@ function renderLibraryPane(mark) {
     });
   });
 
-  const newBtn = treeEl.querySelector('[data-action="new-folder"]');
-  if (newBtn) {
-    newBtn.addEventListener("click", () => void createLibraryFolder(mark));
-  }
-  const renameBtn = treeEl.querySelector('[data-action="rename-folder"]');
-  if (renameBtn) {
-    renameBtn.addEventListener("click", () => void renameLibraryFolder(mark));
-  }
-  const delBtn = treeEl.querySelector('[data-action="delete-folder"]');
-  if (delBtn) {
-    delBtn.addEventListener("click", () => void deleteLibraryFolder(mark));
-  }
+  treeEl.querySelector('[data-action="new-folder"]')?.addEventListener("click", () => {
+    void createLibraryFolder(mark);
+  });
+  treeEl.querySelector('[data-action="rename-folder"]')?.addEventListener("click", () => {
+    void renameLibraryFolder(mark);
+  });
+  treeEl.querySelector('[data-action="delete-folder"]')?.addEventListener("click", () => {
+    void deleteLibraryFolder(mark);
+  });
 
   const entries = entriesInFolder(latestLibrary.entries || [], mark, selectedFolder);
   if (!entries.length) {
-    listElLib.innerHTML = `<p class="empty-state">暂无条目</p>`;
+    listElLib.innerHTML = `<div class="library-empty"><strong>这里还没有条目</strong>在 Reminder 列表点「馆藏」标注；可用左侧新建文件夹归组。</div>`;
     return;
   }
 
   listElLib.innerHTML = "";
   for (const entry of entries) {
-    const card = document.createElement("div");
+    const card = document.createElement("article");
     card.className = `library-entry${entry.stale ? " is-stale" : ""}`;
     const title = entryDisplayTitle(entry);
     card.innerHTML = `
@@ -868,10 +875,10 @@ function renderLibraryPane(mark) {
       ${entry.note ? `<div class="library-entry-note">${escapeHtml(entry.note)}</div>` : ""}
       <div class="library-entry-actions">
         <button type="button" data-act="edit">编辑</button>
-        <button type="button" data-act="move">移文件夹</button>
+        <button type="button" data-act="move">移动</button>
         <button type="button" data-act="flip">${mark === "todo" ? "归档" : "改代办"}</button>
         <button type="button" data-act="unmark">取消标注</button>
-        <button type="button" data-act="open" ${entry.workspacePath ? "" : "disabled"}>↗</button>
+        <button type="button" data-act="open" title="在 Cursor 打开" ${entry.workspacePath ? "" : "disabled"}>↗</button>
       </div>
     `;
     card.querySelector('[data-act="edit"]')?.addEventListener("click", () => {
@@ -906,18 +913,132 @@ function renderLibraryPane(mark) {
   }
 }
 
+/**
+ * WKWebView often ignores window.prompt/confirm — use an in-panel dialog instead.
+ * @param {{
+ *   title: string,
+ *   hint?: string,
+ *   mode?: "text"|"confirm"|"select",
+ *   label?: string,
+ *   defaultValue?: string,
+ *   okLabel?: string,
+ *   options?: Array<{ id: string, label: string }>,
+ * }} opts
+ * @returns {Promise<string|null>}
+ */
+function openLibraryPrompt(opts) {
+  const dialog = document.getElementById("libraryPromptDialog");
+  const form = document.getElementById("libraryPromptForm");
+  const titleEl = document.getElementById("libraryPromptTitle");
+  const hintEl = document.getElementById("libraryPromptHint");
+  const textLabel = document.getElementById("libraryPromptTextLabel");
+  const textCaption = document.getElementById("libraryPromptTextCaption");
+  const textInput = document.getElementById("libraryPromptText");
+  const selectLabel = document.getElementById("libraryPromptSelectLabel");
+  const selectCaption = document.getElementById("libraryPromptSelectCaption");
+  const selectEl = document.getElementById("libraryPromptSelect");
+  const cancelBtn = document.getElementById("libraryPromptCancel");
+  const okBtn = document.getElementById("libraryPromptOk");
+  if (!dialog || !form || !textInput || !selectEl || !cancelBtn || !okBtn) {
+    return Promise.resolve(null);
+  }
+
+  const mode = opts.mode || "text";
+  titleEl.textContent = opts.title || "输入";
+  if (opts.hint) {
+    hintEl.hidden = false;
+    hintEl.textContent = opts.hint;
+  } else {
+    hintEl.hidden = true;
+    hintEl.textContent = "";
+  }
+  okBtn.textContent = opts.okLabel || (mode === "confirm" ? "确认" : "确定");
+
+  if (mode === "select") {
+    textLabel.hidden = true;
+    selectLabel.hidden = false;
+    selectCaption.textContent = opts.label || "文件夹";
+    selectEl.innerHTML = (opts.options || [])
+      .map(
+        (o) =>
+          `<option value="${escapeHtml(o.id)}">${escapeHtml(o.label)}</option>`,
+      )
+      .join("");
+    selectEl.value = opts.defaultValue ?? (opts.options?.[0]?.id ?? "");
+  } else if (mode === "confirm") {
+    textLabel.hidden = true;
+    selectLabel.hidden = true;
+  } else {
+    textLabel.hidden = false;
+    selectLabel.hidden = true;
+    textCaption.textContent = opts.label || "名称";
+    textInput.value = opts.defaultValue || "";
+  }
+
+  return new Promise((resolve) => {
+    const finish = (value) => {
+      form.removeEventListener("submit", onSubmit);
+      cancelBtn.removeEventListener("click", onCancel);
+      dialog.removeEventListener("cancel", onCancel);
+      if (dialog.open) dialog.close();
+      resolve(value);
+    };
+    const onCancel = (ev) => {
+      ev.preventDefault();
+      finish(null);
+    };
+    const onSubmit = (ev) => {
+      ev.preventDefault();
+      if (mode === "confirm") {
+        finish("ok");
+        return;
+      }
+      if (mode === "select") {
+        finish(selectEl.value);
+        return;
+      }
+      const v = textInput.value.trim();
+      if (!v) {
+        textInput.focus();
+        return;
+      }
+      finish(v);
+    };
+    form.addEventListener("submit", onSubmit);
+    cancelBtn.addEventListener("click", onCancel);
+    dialog.addEventListener("cancel", onCancel);
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    if (mode === "text") {
+      queueMicrotask(() => {
+        textInput.focus();
+        textInput.select();
+      });
+    }
+  });
+}
+
 async function createLibraryFolder(mark) {
-  const name = window.prompt("文件夹名称");
-  if (!name || !name.trim()) return;
   const parentId = libraryFolderFilter[mark];
+  const name = await openLibraryPrompt({
+    title: "新建文件夹",
+    label: "名称",
+    hint: parentId ? "将创建在当前选中文件夹下" : "将创建在根级",
+    defaultValue: "",
+    okLabel: "创建",
+  });
+  if (!name) return;
   try {
     const res = await fetch("/api/library/folders", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mark, name: name.trim(), parentId }),
+      body: JSON.stringify({ mark, name, parentId }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) showToast(data.error || "创建失败");
+    if (!res.ok) {
+      showToast(data.error || "创建失败");
+      return;
+    }
+    showToast("已创建文件夹");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "创建失败");
   }
@@ -930,16 +1051,22 @@ async function renameLibraryFolder(mark) {
     return;
   }
   const folder = (latestLibrary.folders || []).find((f) => f.id === id);
-  const name = window.prompt("新名称", folder?.name || "");
-  if (!name || !name.trim()) return;
+  const name = await openLibraryPrompt({
+    title: "重命名文件夹",
+    label: "新名称",
+    defaultValue: folder?.name || "",
+    okLabel: "保存",
+  });
+  if (!name) return;
   try {
     const res = await fetch(`/api/library/folders/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: name.trim() }),
+      body: JSON.stringify({ name }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) showToast(data.error || "重命名失败");
+    else showToast("已重命名");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "重命名失败");
   }
@@ -951,7 +1078,14 @@ async function deleteLibraryFolder(mark) {
     showToast("请先选中文件夹");
     return;
   }
-  if (!window.confirm("删除该文件夹？子文件夹与条目将上移到上一级。")) return;
+  const folder = (latestLibrary.folders || []).find((f) => f.id === id);
+  const ok = await openLibraryPrompt({
+    title: "删除文件夹",
+    mode: "confirm",
+    hint: `删除「${folder?.name || "文件夹"}」后，子文件夹与其中的条目会上移到上一级。此操作不可撤销。`,
+    okLabel: "删除",
+  });
+  if (!ok) return;
   try {
     const res = await fetch(`/api/library/folders/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -962,6 +1096,7 @@ async function deleteLibraryFolder(mark) {
       return;
     }
     libraryFolderFilter[mark] = null;
+    showToast("已删除文件夹");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "删除失败");
   }
@@ -969,19 +1104,19 @@ async function deleteLibraryFolder(mark) {
 
 async function moveLibraryEntry(entry, mark) {
   const opts = folderSelectOptions(latestLibrary.folders || [], mark);
-  const choices = ["未归组", ...opts.map((o) => o.label)];
-  const pick = window.prompt(
-    `移到文件夹（输入序号 0-${opts.length}）:\n${choices.map((c, i) => `${i}. ${c}`).join("\n")}`,
-    "0",
-  );
-  if (pick == null) return;
-  const idx = Number(pick);
-  if (!Number.isInteger(idx) || idx < 0 || idx > opts.length) {
-    showToast("无效序号");
-    return;
-  }
-  const folderId = idx === 0 ? null : opts[idx - 1].id;
-  await patchLibraryEntry(entry.conversationId, { folderId });
+  const options = [{ id: "", label: "未归组" }, ...opts];
+  const picked = await openLibraryPrompt({
+    title: "移动到文件夹",
+    mode: "select",
+    label: "目标",
+    options,
+    defaultValue: entry.folderId || "",
+    okLabel: "移动",
+  });
+  if (picked == null) return;
+  await patchLibraryEntry(entry.conversationId, {
+    folderId: picked === "" ? null : picked,
+  });
 }
 
 async function patchLibraryEntry(conversationId, patch) {
@@ -999,7 +1134,13 @@ async function patchLibraryEntry(conversationId, patch) {
 }
 
 async function unmarkLibraryEntry(conversationId) {
-  if (!window.confirm("取消标注？标题与备注将丢弃。")) return;
+  const ok = await openLibraryPrompt({
+    title: "取消标注",
+    mode: "confirm",
+    hint: "取消后标题与备注会丢弃，条目从 Todo / Archive 中移除。",
+    okLabel: "取消标注",
+  });
+  if (!ok) return;
   try {
     const res = await fetch(`/api/library/entries/${encodeURIComponent(conversationId)}`, {
       method: "DELETE",

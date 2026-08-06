@@ -687,10 +687,10 @@ body {
 
 .library-tabs {
   display: flex;
-  gap: 0;
+  gap: 0.15rem;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
-  padding: 0 1rem;
+  background: var(--bg);
+  padding: 0.35rem 1rem 0;
   position: sticky;
   top: 49px;
   z-index: 9;
@@ -699,54 +699,143 @@ body {
 .library-tabs [role="tab"] {
   background: transparent;
   color: var(--text-muted);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 0.55rem 0.9rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  padding: 0.45rem 0.95rem 0.55rem;
   cursor: pointer;
   font: inherit;
   font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.library-tabs [role="tab"]:hover {
+  color: var(--text);
 }
 
 .library-tabs [role="tab"][aria-selected="true"] {
   color: var(--text);
-  border-bottom-color: var(--text);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  border-bottom-color: var(--bg-elevated);
+  margin-bottom: -1px;
+  padding-bottom: calc(0.55rem + 1px);
 }
 
 .library-layout {
+  --lib-spine: #8a8580;
+  --lib-ink: #e4dfd6;
   display: grid;
-  grid-template-columns: minmax(160px, 220px) 1fr;
-  gap: 0;
-  min-height: 50vh;
+  grid-template-columns: minmax(200px, 240px) 1fr;
+  min-height: calc(100vh - 96px);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--lib-spine) 18%, transparent) 0 3px, transparent 3px),
+    var(--bg);
+}
+
+.library-layout--todo {
+  --lib-spine: #c4a574;
+}
+
+.library-layout--archive {
+  --lib-spine: #7a9e98;
+}
+
+.library-rail {
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--lib-spine) 6%, var(--bg-elevated));
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.library-rail-head {
+  padding: 1rem 0.9rem 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--lib-spine) 28%, var(--border));
+}
+
+.library-stamp {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lib-ink);
+}
+
+.library-stamp-sub {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--lib-spine) 70%, var(--text-muted));
 }
 
 .library-tree {
-  border-right: 1px solid var(--border);
-  padding: 0.75rem;
-  background: var(--bg-elevated);
+  padding: 0.65rem 0.55rem 1rem;
+  flex: 1;
+}
+
+.library-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.library-stage-head {
+  padding: 0.85rem 1.1rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.library-stage-head strong {
+  color: var(--lib-ink);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-size: 13px;
 }
 
 .library-list {
-  padding: 0.75rem 1rem;
+  padding: 0.85rem 1.1rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .library-tree-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 0.65rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
 }
 
-.library-tree-actions button,
-.library-entry-actions button,
-.card-actions .library-mark-btn {
+.library-tree-actions button {
   font: inherit;
-  font-size: 11px;
-  padding: 0.2rem 0.45rem;
-  border: 1px solid var(--border);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  padding: 0.4rem 0.2rem;
+  border: 1px solid color-mix(in srgb, var(--lib-spine) 35%, var(--border));
   border-radius: 3px;
-  background: var(--bg-card);
-  color: var(--text);
+  background: color-mix(in srgb, var(--lib-spine) 10%, var(--bg));
+  color: var(--lib-ink);
   cursor: pointer;
+}
+
+.library-tree-actions button:hover {
+  background: color-mix(in srgb, var(--lib-spine) 22%, var(--bg));
+}
+
+.library-tree-actions button:focus-visible,
+.library-folder-btn:focus-visible,
+.library-unfiled-btn:focus-visible,
+.library-entry-actions button:focus-visible,
+.card-actions .library-mark-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--lib-spine) 70%, white);
+  outline-offset: 1px;
 }
 
 .library-folder-btn,
@@ -756,52 +845,71 @@ body {
   text-align: left;
   background: transparent;
   border: 0;
+  border-left: 2px solid transparent;
   color: var(--text);
   font: inherit;
   font-size: 12px;
-  padding: 0.3rem 0.35rem;
+  padding: 0.4rem 0.45rem;
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: 0 3px 3px 0;
+}
+
+.library-folder-btn:hover,
+.library-unfiled-btn:hover {
+  background: color-mix(in srgb, var(--lib-spine) 12%, transparent);
 }
 
 .library-folder-btn.is-selected,
 .library-unfiled-btn.is-selected {
-  background: var(--bg-card);
+  background: color-mix(in srgb, var(--lib-spine) 18%, var(--bg-card));
+  border-left-color: var(--lib-spine);
+  color: var(--lib-ink);
 }
 
 .library-folder-children {
-  margin-left: 0.75rem;
+  margin-left: 0.55rem;
+  border-left: 1px solid color-mix(in srgb, var(--lib-spine) 25%, var(--border));
+  padding-left: 0.2rem;
 }
 
 .library-entry {
+  position: relative;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.65rem 0.75rem;
-  margin-bottom: 0.5rem;
-  background: var(--bg-card);
+  border-left: 3px solid var(--lib-spine);
+  border-radius: 2px 6px 6px 2px;
+  padding: 0.85rem 0.95rem 0.75rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--lib-spine) 8%, var(--bg-card)), var(--bg-card));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--lib-spine) 12%, transparent);
 }
 
 .library-entry.is-stale {
-  opacity: 0.85;
-  border-style: dashed;
+  opacity: 0.72;
+  border-style: solid dashed dashed dashed;
 }
 
 .library-entry-title {
   font-weight: 600;
-  margin-bottom: 0.25rem;
+  font-size: 14px;
+  color: var(--lib-ink);
+  margin-bottom: 0.3rem;
+  letter-spacing: 0.01em;
 }
 
 .library-entry-meta {
   color: var(--text-muted);
   font-size: 11px;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.45rem;
 }
 
 .library-entry-note {
-  color: #ccc;
+  color: #c8c4bb;
   font-size: 12px;
   white-space: pre-wrap;
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.65rem;
+  line-height: 1.5;
+  border-left: 1px solid color-mix(in srgb, var(--lib-spine) 30%, var(--border));
+  padding-left: 0.65rem;
 }
 
 .library-entry-actions {
@@ -810,43 +918,95 @@ body {
   gap: 0.35rem;
 }
 
+.library-entry-actions button,
+.card-actions .library-mark-btn {
+  font: inherit;
+  font-size: 11px;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.library-entry-actions button:hover,
+.card-actions .library-mark-btn:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--lib-spine) 45%, var(--border));
+}
+
+.library-entry-actions button[data-act="open"] {
+  margin-left: auto;
+  color: var(--lib-ink);
+  border-color: color-mix(in srgb, var(--lib-spine) 40%, var(--border));
+}
+
 .library-stale-badge {
   display: inline-block;
   font-size: 10px;
   color: var(--waiting);
-  margin-left: 0.35rem;
+  margin-left: 0.45rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.library-empty {
+  margin: 2rem auto;
+  max-width: 28rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.library-empty strong {
+  display: block;
+  color: var(--lib-ink);
+  font-size: 13px;
+  margin-bottom: 0.35rem;
 }
 
 .library-dialog {
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--lib-spine, #8a8580) 40%, var(--border));
+  border-radius: 8px;
   padding: 0;
   background: var(--bg-elevated);
   color: var(--text);
   max-width: 420px;
   width: calc(100% - 2rem);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
 }
 
 .library-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(8, 8, 8, 0.62);
 }
 
 .library-dialog-form {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  padding: 1rem;
+  gap: 0.7rem;
+  padding: 1.05rem 1.1rem 1rem;
 }
 
 .library-dialog-form h3 {
   margin: 0;
   font-size: 14px;
+  color: var(--lib-ink, var(--text));
+  letter-spacing: 0.04em;
+}
+
+.library-dialog-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 
 .library-dialog-form label {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -859,28 +1019,58 @@ body {
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0.35rem 0.45rem;
+  border-radius: 4px;
+  padding: 0.45rem 0.55rem;
+}
+
+.library-dialog-form input:focus,
+.library-dialog-form textarea:focus,
+.library-dialog-form select:focus {
+  outline: 2px solid color-mix(in srgb, var(--lib-spine, #8a8580) 55%, white);
+  outline-offset: 1px;
 }
 
 .library-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
-  margin-top: 0.25rem;
+  margin-top: 0.35rem;
 }
 
 .library-dialog-actions button {
   font: inherit;
   font-size: 12px;
-  padding: 0.35rem 0.7rem;
+  padding: 0.4rem 0.8rem;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--bg-card);
   color: var(--text);
   cursor: pointer;
 }
 
-.library-dialog-actions #libraryMarkSave {
-  border-color: #555;
+.library-dialog-actions button[type="submit"],
+.library-dialog-actions #libraryMarkSave,
+.library-dialog-actions #libraryPromptOk {
+  background: color-mix(in srgb, var(--lib-spine, #8a8580) 28%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--lib-spine, #8a8580) 45%, var(--border));
+  color: var(--lib-ink, var(--text));
+}
+
+@media (max-width: 720px) {
+  .library-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .library-rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-tabs [role="tab"],
+  .library-folder-btn,
+  .library-entry-actions button {
+    transition: none;
+  }
 }

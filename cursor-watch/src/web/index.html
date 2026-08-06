@@ -58,16 +58,34 @@
     </div>
 
     <div id="todoPane" role="tabpanel" data-pane="todo" hidden>
-      <div class="library-layout" data-mark="todo">
-        <aside class="library-tree" id="todoTree"></aside>
-        <section class="library-list" id="todoList"></section>
+      <div class="library-layout library-layout--todo" data-mark="todo">
+        <aside class="library-rail">
+          <header class="library-rail-head">
+            <span class="library-stamp">Todo</span>
+            <span class="library-stamp-sub">待落地</span>
+          </header>
+          <div class="library-tree" id="todoTree"></div>
+        </aside>
+        <section class="library-stage">
+          <header class="library-stage-head" id="todoStageHead"></header>
+          <div class="library-list" id="todoList"></div>
+        </section>
       </div>
     </div>
 
     <div id="archivePane" role="tabpanel" data-pane="archive" hidden>
-      <div class="library-layout" data-mark="archive">
-        <aside class="library-tree" id="archiveTree"></aside>
-        <section class="library-list" id="archiveList"></section>
+      <div class="library-layout library-layout--archive" data-mark="archive">
+        <aside class="library-rail">
+          <header class="library-rail-head">
+            <span class="library-stamp">Archive</span>
+            <span class="library-stamp-sub">回看 / 宣讲</span>
+          </header>
+          <div class="library-tree" id="archiveTree"></div>
+        </aside>
+        <section class="library-stage">
+          <header class="library-stage-head" id="archiveStageHead"></header>
+          <div class="library-list" id="archiveList"></div>
+        </section>
       </div>
     </div>
 
@@ -102,6 +120,25 @@
         <div class="library-dialog-actions">
           <button type="submit" value="cancel" formmethod="dialog">取消</button>
           <button type="submit" value="save" id="libraryMarkSave">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="libraryPromptDialog" class="library-dialog">
+      <form id="libraryPromptForm" class="library-dialog-form">
+        <h3 id="libraryPromptTitle">输入</h3>
+        <p id="libraryPromptHint" class="library-dialog-hint" hidden></p>
+        <label id="libraryPromptTextLabel">
+          <span id="libraryPromptTextCaption">名称</span>
+          <input id="libraryPromptText" type="text" maxlength="80" autocomplete="off" />
+        </label>
+        <label id="libraryPromptSelectLabel" hidden>
+          <span id="libraryPromptSelectCaption">文件夹</span>
+          <select id="libraryPromptSelect"></select>
+        </label>
+        <div class="library-dialog-actions">
+          <button type="button" id="libraryPromptCancel">取消</button>
+          <button type="submit" id="libraryPromptOk">确定</button>
         </div>
       </form>
     </dialog>
