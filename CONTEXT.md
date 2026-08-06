@@ -1,20 +1,56 @@
 # cursor-watch
 
-本机多个 Cursor Agent 会话的提醒与监控工具（产品名 **Cursors Watch**）：主职是在对话需要你介入或已告一段落时发出提醒。
+本机多个 Cursor Agent 会话的提醒与馆藏工具（产品名 **Cursors Watch**）：与 Reminder 并列的主职是给 Chat 打上代办/归档并加以组织与备注，便于回看与落地。
 
 ## Language
 
 **Cursors Watch**:
-面向用户的产品显示名与安装名（`/Applications/Cursors Watch.app`）：监控**多个** Cursor 会话。菜单栏缩写仍为 **CW**。技术包名 / Bundle ID 保持 `cursor-watch` / `com.cursor-watch.*`。
-_Avoid_: 「Cursor Agent 态势面板」、单独再挂一个中文主品牌名、把 Bundle ID 改成 `com.cursors-watch.*`（除非刻意当作新 App）
+面向用户的产品显示名与安装名（`/Applications/Cursors Watch.app`）：监控**多个** Cursor 会话，并管理代办/归档馆藏。菜单栏缩写仍为 **CW**。技术包名 / Bundle ID 保持 `cursor-watch` / `com.cursor-watch.*`。
+_Avoid_: 「Cursor Agent 态势面板」、单独再挂一个中文主品牌名、把 Bundle ID 改成 `com.cursors-watch.*`（除非刻意当作新 App）、把产品说成「只有提醒、没有馆藏」
 
 **Reminder（提醒）**:
-一次「该你看了」的通知意图：某次对话已告一段落或需要你介入时，主动叫你，而不是等你扫列表。
-_Avoid_: 注意力（作为主产品目标）、态势（作为主产品目标）、banner 文案本身
+一次「该你看了」的通知意图：某次对话已告一段落或需要你介入时，主动叫你，而不是等你扫列表。与馆藏状态无关。
+_Avoid_: 注意力（作为唯一主产品目标）、态势（作为主产品目标）、banner 文案本身、把代办当成 Reminder
+
+**Chat library（会话馆藏）**:
+与 Reminder **并列的主职**：对有意义的 Agent Chat 做人为标注、归组与备注，便于待落地管理与事后回看/宣讲。不是 Cursor 侧边栏的替代品，也不自动推断该标什么。
+_Avoid_: 任务中枢（泛项目管理）、Attention queue（那是次要浏览面）、把馆藏说成 Reminder 的附属开关
+
+**Library mark（馆藏状态）**:
+一条 Chat 上至多一个互斥状态：`无标注` / `代办` / `归档`。与 Reminder 收件箱是否「待确认」无关。
+_Avoid_: 同时挂代办+归档、把未读/Turn end 自动当成馆藏状态
+
+**Todo mark（代办）**:
+馆藏状态之一：该 Chat 里想法已做了 AI 验证，但代码尚未落地，需要回头继续推进。
+_Avoid_: Reminder、待确认、待办任务系统里的 generic todo
+
+**Archive mark（归档）**:
+馆藏状态之一：该 Chat 已告一段落且值得保留——事后回看，或用于团队宣讲赋能。宣讲赋能指**本机打开该 Chat 当面讲**，不做馆藏导出或多人同步。
+_Avoid_: 系统自动冷存储、删除、仅表示「已读」、把归档当成团队共享知识库
+
+**Library folder（馆藏文件夹）**:
+代办与归档**各自独立**的可选归组容器；两边不同名同构、不共用；树可**任意深度**嵌套；**本机全局一份**（跨工作区共享同一套 Todo 树 / Archive 树）。Chat 可以只带馆藏状态、不放进任何文件夹（未归组）。条目可展示所属工作区以辨来源。状态迁移时退出原树文件夹，落到目标状态未归组，再可选放入目标树。
+_Avoid_: 用文件夹替代馆藏状态、强制先建树才能标注、全局共用一棵「状态混用」树、按工作区各拆一套馆藏树、迁状态时按同名自动落入、把工作区/工程目录当成馆藏文件夹、首版故意限制为单层/浅层
+
+**Library title（馆藏标题）**:
+用户为已标注 Chat 写的可选短标题，用于馆藏列表一眼辨认；可补充或盖过 Cursor 侧原始会话名在馆藏里的展示，不修改 Cursor 内的会话名。代办↔归档互迁时**保留**；取消标注时**丢弃**。
+_Avoid_: 当成 Cursor 会话重命名、当成唯一必填才能标注、取消标注后软保留幽灵标题
+
+**Library note（馆藏备注）**:
+用户为已标注 Chat 写的可选长文本，记录目的、下一步或宣讲要点等；与馆藏标题分离，不进列表主行抢视线。代办↔归档互迁时**保留**；取消标注时**丢弃**。
+_Avoid_: 结构化多字段模板、把 Reminder 文案当备注、取消标注后软保留幽灵备注
+
+**Library curation（馆藏整理）**:
+在 Todo / Archive Tab 内对**已标注**条目做完整管理：改馆藏标题/备注、在本状态树内建文件夹与移动、代办↔归档互迁、取消标注（回无标注），以及 Open Chat jump。互迁时：退出原文件夹 → 目标状态未归组；**标题与备注保留**。取消标注：丢弃标题、备注与文件夹归属。
+_Avoid_: 馆藏 Tab 只读、改状态/取消只能回 Reminder、把整理能力藏到与 Tab 无关的隐蔽入口、取消标注仍保留元数据
+
+**Stale library entry（失效馆藏条目）**:
+源 Agent Chat 在 Cursor/本机已不可用（删除或无法解析）时，馆藏条目**仍保留**标题、备注与文件夹位置，并标明源会话不可用；Open Chat 失败并提示；用户可取消标注以清除。不自动剔除。
+_Avoid_: 源消失则静默删除馆藏、面板假装仍可打开、不展示失效态
 
 **Attention queue（注意力队列）**:
-按紧急度排列的会话浏览面；是次要能力，不是产品主职。
-_Avoid_: 主看板、核心功能
+按紧急度排列的会话浏览面；是次要能力，不是产品主职（主职是 Reminder 与 Chat library）。
+_Avoid_: 主看板、把注意力队列当成代办/归档本身
 
 **Turn end（本轮结束）**:
 Cursor 发出会话轮次结束信号（现有实现依赖 hooks 的 `stop` → `stoppedAt`）。Reminder 的默认触发点是本轮结束，不依赖未读蓝点——因为窗口仍开着时常常没有未读。
@@ -61,8 +97,16 @@ _Avoid_: 每次结束都堆一条、未确认就静默到完全不再通知
 _Avoid_: 仅打开工程当唯一落点、点击无任何导航
 
 **Inbox-first panel（收件箱优先面板）**:
-面板首页上方固定展示待确认 Reminder；其下再展示精简的运行中/最近会话列表。注意力/工作区浏览降为附属，不再是默认主叙事。
-_Avoid_: 默认注意力墙、单独第三种「提醒」mode 当唯一入口、面板只做收件箱而无运行态
+仅适用于 **Reminder Tab** 内部：上方固定待确认 Reminder，其下再展示精简的运行中/最近会话。不再表示整个 App 只有收件箱这一种主叙事。
+_Avoid_: 默认注意力墙、单独第三种「提醒」mode 当唯一入口、面板只做收件箱而无运行态、把 Inbox-first 理解成没有 Todo/Archive Tab
+
+**Library panel tabs（馆藏面板页签）**:
+面板顶层三个对等 Tab：`Reminder`（默认首页）｜`Todo`｜`Archive`。Reminder Tab 内仍 Inbox-first；Todo / Archive Tab 各自展示对应馆藏状态、其文件夹树与标题/备注。可记住上次 Tab，但冷启动默认 Reminder。
+_Avoid_: 单页三分硬塞、把 Todo/Archive 藏进 Reminder 的二级抽屉却仍声称双主职、顶层只有「提醒/馆藏」两个入口（与已定三 Tab 不符）
+
+**Library mark entry（馆藏标注入口）**:
+从未标注变为代办/归档，只在 **Reminder Tab** 的收件箱或运行中/最近列表上发起（可顺带写标题、备注、选目标状态树中的文件夹）。标注完成后**留在 Reminder Tab**，不自动跳到 Todo/Archive。首版**不**提供本机历史会话搜索挑选；不在列表中的旧 Chat 不在首版标注范围内（可日后打开/活动后出现在最近再标）。
+_Avoid_: 在 Todo/Archive Tab 内从本机会话库搜索添加、标完强制切 Tab、把「统一管理所有历史 Chat」当成首版承诺
 
 **Hooks gate（Hooks 门禁）**:
 系统通知类 Reminder 以 hooks 的 `stop` 为可靠 Turn end 信号；未安装 hooks 时不发系统通知，面板提示安装，并可继续展示未读等旧信号（不称为 Reminder）。`open` 仍不自动安装 hooks。
