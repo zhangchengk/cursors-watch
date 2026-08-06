@@ -89,7 +89,27 @@ fi
 xattr -cr "$APP" 2>/dev/null || true
 # Drop previous signature so re-sign succeeds after resource refresh
 codesign --remove-signature "$APP" 2>/dev/null || true
-codesign --force --deep --sign - "$APP" 2>&1 | tail -5
+
+# Stable local identity (not ad-hoc): preserves macOS TCC folder grants across reinstalls.
+SIGN_IDENTITY="${CURSOR_WATCH_CODESIGN_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ]; then
+  SIGN_IDENTITY="$("$ROOT/scripts/ensure-codesign-identity.sh")"
+fi
+KEYCHAIN="${CURSOR_WATCH_CODESIGN_KEYCHAIN:-}"
+if [ -z "$KEYCHAIN" ]; then
+  if [ -f "$HOME/.cursor-watch/codesign.keychain-db" ]; then
+    KEYCHAIN="$HOME/.cursor-watch/codesign.keychain-db"
+  else
+    KEYCHAIN="$HOME/.cursor-watch/codesign.keychain"
+  fi
+fi
+if [ -f "$KEYCHAIN" ]; then
+  security unlock-keychain -p "${CURSOR_WATCH_CODESIGN_KEYCHAIN_PASS:-cursor-watch-local-codesign}" "$KEYCHAIN" >/dev/null 2>&1 || true
+  codesign --force --deep --sign "$SIGN_IDENTITY" --keychain "$KEYCHAIN" "$APP" 2>&1 | tail -8
+else
+  codesign --force --deep --sign "$SIGN_IDENTITY" "$APP" 2>&1 | tail -8
+fi
+echo "Signed with: $SIGN_IDENTITY"
 
 echo "Built: $APP"
 
@@ -107,8 +127,15 @@ if [ "$DO_INSTALL" = "install" ]; then
   rm -rf "$INSTALL_TO"
   ditto "$APP" "$INSTALL_TO"
   xattr -cr "$INSTALL_TO" 2>/dev/null || true
-  codesign --force --deep --sign - "$INSTALL_TO" 2>&1 | tail -5
+  if [ -f "$KEYCHAIN" ]; then
+    security unlock-keychain -p "${CURSOR_WATCH_CODESIGN_KEYCHAIN_PASS:-cursor-watch-local-codesign}" "$KEYCHAIN" >/dev/null 2>&1 || true
+    codesign --force --deep --sign "$SIGN_IDENTITY" --keychain "$KEYCHAIN" "$INSTALL_TO" 2>&1 | tail -8
+  else
+    codesign --force --deep --sign "$SIGN_IDENTITY" "$INSTALL_TO" 2>&1 | tail -8
+  fi
   echo "Installed: $INSTALL_TO"
+  echo "Tip: after the first Allow round, later package:app:install keeps TCC if this identity stays the same."
+  echo "Optional: System Settings → Privacy & Security → Full Disk Access → enable Cursors Watch (one-time)."
 
   # Drop local dist copy so Open/Spotlight only see /Applications
   rm -rf "$APP"

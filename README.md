@@ -45,6 +45,7 @@ npm run package:app:install   # → /Applications/Cursors Watch.app
 - **Reminder**：优先壳的系统通知；权限未开或失败则壳内 **HUD** 浮层兜底。
 - 若 `7423` 上已是本服务的旧 daemon，壳会**接管**并打开面板；只有被其它程序占用才会报错。
 - 更新：再跑 `package:dmg` / `package:app:install` 覆盖。不含 hooks 一键安装与自动更新。
+- **文件夹权限弹窗**：安装脚本用本机固定签名证书（`~/.cursor-watch/codesign.keychain`），避免每次覆盖安装都因 ad-hoc 签名变化而重新点「允许」。**第一次**仍要按桌面/文稿等点允许；也可在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」里勾选 Cursors Watch（一次即可）。
 
 技术标识保持 `cursor-watch` / `com.cursor-watch.*`；人看见的名字是 **Cursors Watch**。
 
