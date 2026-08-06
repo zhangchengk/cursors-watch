@@ -2,11 +2,11 @@
 
 [中文](./README.md)
 
-Cursors Watch watches multiple local Cursor Agent sessions (npm package name remains `cursor-watch`). On Turn end it interrupts you with an OS notification or HUD, leaves one pending item in the panel inbox, and lists currently running sessions below.
+Cursors Watch watches multiple local Cursor Agent sessions (npm package name remains `cursor-watch`). On Turn end it interrupts you with an OS notification or HUD, leaves one pending item in the panel inbox, and lists currently running sessions below. The panel also has **Todo / Archive** library tabs: mark chats that are validated but not yet landed, or archive ones worth revisiting / presenting live on your machine, with optional titles, notes, and folders (one machine-global tree per mark).
 
 Reminders need hooks; opening the matching Agent chat needs the bridge extension (both are **default-installed and self-checked** on App/`open`). While an Active `/loop` sentinel is still alive, hooks `stop` events are not treated as turn end. Panel `↗` opens the workspace then focuses the chat via `canvas.openAgentByConversationId` (verified on Cursor 3.13.x; semi-internal — may degrade to workspace-only + toast after major upgrades). It does not modify session content or orchestrate work for you.
 
-It is not a task hub or remote monitoring tool, and it does not replace Cursor's sidebar. It only reads local Cursor data (see below), and it is macOS only. The server binds to localhost and shows paths and message excerpts in the clear with no redaction, so do not expose the port to the network.
+It is not a task hub or remote monitoring tool, and it does not replace Cursor's sidebar; the library has no export or multi-user sync. It only reads local Cursor data (see below), stores library marks under `~/.cursor-watch/`, and it is macOS only. The server binds to localhost and shows paths and message excerpts in the clear with no redaction, so do not expose the port to the network.
 
 ## Screenshots
 

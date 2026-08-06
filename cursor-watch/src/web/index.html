@@ -27,24 +27,85 @@
         </button>
       </div>
     </header>
-    <section id="inbox" aria-label="待确认 Reminder">
-      <header class="inbox-header">
-        <h2>待确认 Reminder</h2>
-        <div class="inbox-header-actions">
-          <span id="inboxCount" class="inbox-count"></span>
-          <button type="button" id="ackAllBtn" class="inbox-ack-all" hidden>全部确认</button>
-        </div>
-      </header>
-      <div id="inboxBody" class="inbox-body list-attention"></div>
-    </section>
-    <section id="sessionsSection" aria-label="运行中">
-      <header class="sessions-header">
-        <h2>运行中</h2>
-      </header>
-      <div id="list"></div>
-    </section>
+
+    <nav class="library-tabs" role="tablist" aria-label="主视图">
+      <button type="button" role="tab" id="tabReminder" data-tab="reminder" aria-selected="true">
+        Reminder
+      </button>
+      <button type="button" role="tab" id="tabTodo" data-tab="todo" aria-selected="false">Todo</button>
+      <button type="button" role="tab" id="tabArchive" data-tab="archive" aria-selected="false">
+        Archive
+      </button>
+    </nav>
+
+    <div id="reminderPane" role="tabpanel" data-pane="reminder">
+      <section id="inbox" aria-label="待确认 Reminder">
+        <header class="inbox-header">
+          <h2>待确认 Reminder</h2>
+          <div class="inbox-header-actions">
+            <span id="inboxCount" class="inbox-count"></span>
+            <button type="button" id="ackAllBtn" class="inbox-ack-all" hidden>全部确认</button>
+          </div>
+        </header>
+        <div id="inboxBody" class="inbox-body list-attention"></div>
+      </section>
+      <section id="sessionsSection" aria-label="运行中">
+        <header class="sessions-header">
+          <h2>运行中</h2>
+        </header>
+        <div id="list"></div>
+      </section>
+    </div>
+
+    <div id="todoPane" role="tabpanel" data-pane="todo" hidden>
+      <div class="library-layout" data-mark="todo">
+        <aside class="library-tree" id="todoTree"></aside>
+        <section class="library-list" id="todoList"></section>
+      </div>
+    </div>
+
+    <div id="archivePane" role="tabpanel" data-pane="archive" hidden>
+      <div class="library-layout" data-mark="archive">
+        <aside class="library-tree" id="archiveTree"></aside>
+        <section class="library-list" id="archiveList"></section>
+      </div>
+    </div>
+
     <aside id="drawer" hidden></aside>
     <div id="toast" class="toast" hidden role="status"></div>
+
+    <dialog id="libraryMarkDialog" class="library-dialog">
+      <form method="dialog" id="libraryMarkForm" class="library-dialog-form">
+        <h3 id="libraryMarkDialogTitle">馆藏标注</h3>
+        <label>
+          状态
+          <select id="libraryMarkSelect" name="mark" required>
+            <option value="todo">Todo（代办）</option>
+            <option value="archive">Archive（归档）</option>
+          </select>
+        </label>
+        <label>
+          标题
+          <input id="libraryTitleInput" name="title" type="text" maxlength="120" />
+        </label>
+        <label>
+          备注
+          <textarea id="libraryNoteInput" name="note" rows="4"></textarea>
+        </label>
+        <label>
+          文件夹
+          <select id="libraryFolderSelect" name="folderId">
+            <option value="">未归组</option>
+          </select>
+        </label>
+        <input type="hidden" id="libraryConvId" name="conversationId" />
+        <div class="library-dialog-actions">
+          <button type="submit" value="cancel" formmethod="dialog">取消</button>
+          <button type="submit" value="save" id="libraryMarkSave">保存</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="/app.js" type="module"></script>
   </body>
 </html>

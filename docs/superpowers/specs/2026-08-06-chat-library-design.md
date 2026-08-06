@@ -1,6 +1,6 @@
 # cursor-watch：Chat library（代办 / 归档）设计
 
-状态：已批准（待实现）  
+状态：已实现  
 日期：2026-08-06  
 范围：与 Reminder **并列主职**的会话馆藏——Todo / Archive 标注、本机全局文件夹树、标题/备注、面板三 Tab  
 前置：`CONTEXT.md`、`docs/adr/0004-reminder-and-chat-library-dual-primary.md`（部分取代 ADR 0001 的「唯一主职」表述）  

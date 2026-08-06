@@ -2,11 +2,11 @@
 
 [English](./README.en.md)
 
-Cursors Watch 盯的是本机多个 Cursor Agent 会话（npm 包名仍是 `cursor-watch`）。某次对话 Turn end 时，它用系统通知或 HUD 打断你，并在面板收件箱留下一条待确认；下方「运行中」列出当前还在跑的会话。
+Cursors Watch 盯的是本机多个 Cursor Agent 会话（npm 包名仍是 `cursor-watch`）。某次对话 Turn end 时，它用系统通知或 HUD 打断你，并在面板收件箱留下一条待确认；下方「运行中」列出当前还在跑的会话。面板顶栏还有 **Todo / Archive** 馆藏：把想法已验证、待落地的 Chat 标成代办，或把值得回看、本机当面宣讲的 Chat 归档，可加标题/备注与文件夹（本机全局树）。
 
 发 Reminder 需要 hooks；打开对应 Agent Chat 需要桥扩展（均随 App/`open` **默认安装并自检**）。会话仍处在 Active `/loop` 时，hooks 打出的 `stop` 不算结束，避免误报。面板 `↗` 会先打开该会话工作区，再经桥扩展调用 Cursor 命令聚焦对应 Chat（已在 Cursor 3.13.x 验证；属半内部 API，大版本升级后若失效会降级为仅开工程并 toast）。不会改会话内容或替你调度。
 
-它不是任务中枢或远程监控，也不能替代 Cursor 侧边栏。数据只读本机 Cursor 目录（见后文），且仅支持 macOS。服务只绑 localhost，路径和消息摘录按原文展示、不做脱敏，所以不要把端口暴露到公网。
+它不是任务中枢或远程监控，也不能替代 Cursor 侧边栏；馆藏不做导出或多人同步。数据只读本机 Cursor 目录（见后文），馆藏标注写在 `~/.cursor-watch/`，且仅支持 macOS。服务只绑 localhost，路径和消息摘录按原文展示、不做脱敏，所以不要把端口暴露到公网。
 
 ## 截图
 

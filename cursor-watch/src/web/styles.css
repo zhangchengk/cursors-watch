@@ -684,3 +684,203 @@ body {
   margin-bottom: 0.45rem;
   color: #ccc;
 }
+
+.library-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  padding: 0 1rem;
+  position: sticky;
+  top: 49px;
+  z-index: 9;
+}
+
+.library-tabs [role="tab"] {
+  background: transparent;
+  color: var(--text-muted);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.library-tabs [role="tab"][aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.library-layout {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: 0;
+  min-height: 50vh;
+}
+
+.library-tree {
+  border-right: 1px solid var(--border);
+  padding: 0.75rem;
+  background: var(--bg-elevated);
+}
+
+.library-list {
+  padding: 0.75rem 1rem;
+}
+
+.library-tree-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+.library-tree-actions button,
+.library-entry-actions button,
+.card-actions .library-mark-btn {
+  font: inherit;
+  font-size: 11px;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.library-folder-btn,
+.library-unfiled-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 0.3rem 0.35rem;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.library-folder-btn.is-selected,
+.library-unfiled-btn.is-selected {
+  background: var(--bg-card);
+}
+
+.library-folder-children {
+  margin-left: 0.75rem;
+}
+
+.library-entry {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.5rem;
+  background: var(--bg-card);
+}
+
+.library-entry.is-stale {
+  opacity: 0.85;
+  border-style: dashed;
+}
+
+.library-entry-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.library-entry-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 0.35rem;
+}
+
+.library-entry-note {
+  color: #ccc;
+  font-size: 12px;
+  white-space: pre-wrap;
+  margin-bottom: 0.45rem;
+}
+
+.library-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.library-stale-badge {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--waiting);
+  margin-left: 0.35rem;
+}
+
+.library-dialog {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0;
+  background: var(--bg-elevated);
+  color: var(--text);
+  max-width: 420px;
+  width: calc(100% - 2rem);
+}
+
+.library-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.library-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1rem;
+}
+
+.library-dialog-form h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.library-dialog-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.library-dialog-form input,
+.library-dialog-form textarea,
+.library-dialog-form select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.35rem 0.45rem;
+}
+
+.library-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.library-dialog-actions button {
+  font: inherit;
+  font-size: 12px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.library-dialog-actions #libraryMarkSave {
+  border-color: #555;
+}

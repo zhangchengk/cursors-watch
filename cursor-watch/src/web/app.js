@@ -24,6 +24,15 @@ import {
   reminderAckPath,
   shouldClearDeepLinkQuery,
 } from "./inbox.js";
+import {
+  buildFolderTree,
+  entryDisplayTitle,
+  entriesInFolder,
+  folderSelectOptions,
+  foldersForMark,
+  loadLibraryTab,
+  saveLibraryTab,
+} from "./library.js";
 
 const listEl = document.getElementById("list");
 const countsEl = document.getElementById("counts");
@@ -37,12 +46,18 @@ const soundToggleEl = document.getElementById("soundToggle");
 let prefs = loadPrefs();
 let latestSessions = [];
 let latestReminders = [];
+let latestLibrary = { folders: [], entries: [] };
 let hooksInstalled = true;
 let selectedConversationId = null;
 let notificationSound = false;
 let resizeTimer = null;
 let deepLinkHandled = false;
 let ackAllInFlight = false;
+/** @type {"reminder"|"todo"|"archive"} */
+let activeTab = "reminder";
+/** @type {{ todo: string|null, archive: string|null }} */
+let libraryFolderFilter = { todo: null, archive: null };
+let markDialogContext = null;
 
 let toastTimer = null;
 /** conversationIds awaiting WS open-chat-result after Phase-1 opened */
@@ -151,6 +166,9 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
   const openBtn = s.workspacePath
     ? `<button type="button" class="open-cursor" title="在 Cursor 中打开对应 Chat">↗</button>`
     : "";
+  const markBtn = s.id
+    ? `<button type="button" class="library-mark-btn" title="标为 Todo / Archive">馆藏</button>`
+    : "";
   const liveBit = s.live
     ? `<span class="live-inline">LIVE</span> ${escapeHtml(s.liveHint || lines.subtitle)}`
     : escapeHtml(lines.subtitle);
@@ -159,8 +177,10 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
       ? `<div class="workspace-path" title="${escapeHtml(lines.workspacePath || lines.workspaceDir)}">${escapeHtml(lines.workspaceDir)}</div>`
       : "";
   const ackRow = onAck
-    ? `<div class="card-actions"><button type="button" class="inbox-ack">确认</button></div>`
-    : "";
+    ? `<div class="card-actions"><button type="button" class="inbox-ack">确认</button>${markBtn}</div>`
+    : markBtn
+      ? `<div class="card-actions">${markBtn}</div>`
+      : "";
   card.innerHTML = `
     <div class="summary-row">
       <div class="summary">${STATUS_ICON[s.status] ?? ""} ${escapeHtml(lines.title)} · ${formatDuration(lines.ageMs)}</div>
@@ -174,12 +194,24 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
   card.classList.toggle("is-live", Boolean(s.live));
   const openMain = () => openDrawer(s);
   card.addEventListener("click", (ev) => {
-    if (ev.target.closest(".open-cursor") || ev.target.closest(".inbox-ack")) return;
+    if (
+      ev.target.closest(".open-cursor") ||
+      ev.target.closest(".inbox-ack") ||
+      ev.target.closest(".library-mark-btn")
+    ) {
+      return;
+    }
     openMain();
   });
   card.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter" || ev.key === " ") {
-      if (ev.target.closest(".open-cursor") || ev.target.closest(".inbox-ack")) return;
+      if (
+        ev.target.closest(".open-cursor") ||
+        ev.target.closest(".inbox-ack") ||
+        ev.target.closest(".library-mark-btn")
+      ) {
+        return;
+      }
       ev.preventDefault();
       openMain();
     }
@@ -196,6 +228,21 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
     ackBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       onAck();
+    });
+  }
+  const markEl = card.querySelector(".library-mark-btn");
+  if (markEl) {
+    markEl.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      openMarkDialog({
+        conversationId: s.id,
+        workspacePath: s.workspacePath,
+        workspaceLabel: s.workspaceLabel,
+        projectKey: s.projectKey,
+        chatName: s.chatName,
+        transcriptPath: s.transcriptPath,
+        title: sessionTitle(s),
+      });
     });
   }
   return card;
@@ -636,6 +683,359 @@ async function fetchDaemonPrefs() {
   syncSoundToggle();
 }
 
+function setActiveTab(tab) {
+  activeTab = tab === "todo" || tab === "archive" ? tab : "reminder";
+  saveLibraryTab(activeTab);
+  for (const btn of document.querySelectorAll(".library-tabs [role='tab']")) {
+    const t = btn.getAttribute("data-tab");
+    btn.setAttribute("aria-selected", t === activeTab ? "true" : "false");
+  }
+  for (const pane of document.querySelectorAll("[data-pane]")) {
+    const show = pane.getAttribute("data-pane") === activeTab;
+    pane.hidden = !show;
+  }
+  if (activeTab === "todo" || activeTab === "archive") {
+    renderLibraryPane(activeTab);
+  }
+}
+
+function bindTabs() {
+  for (const btn of document.querySelectorAll(".library-tabs [role='tab']")) {
+    btn.addEventListener("click", () => {
+      setActiveTab(btn.getAttribute("data-tab") || "reminder");
+    });
+  }
+}
+
+function fillFolderSelect(selectEl, mark, selectedId) {
+  if (!selectEl) return;
+  const opts = folderSelectOptions(latestLibrary.folders || [], mark);
+  selectEl.innerHTML =
+    `<option value="">未归组</option>` +
+    opts.map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.label)}</option>`).join("");
+  selectEl.value = selectedId || "";
+}
+
+function openMarkDialog(ctx) {
+  const dialog = document.getElementById("libraryMarkDialog");
+  const markSelect = document.getElementById("libraryMarkSelect");
+  const titleInput = document.getElementById("libraryTitleInput");
+  const noteInput = document.getElementById("libraryNoteInput");
+  const folderSelect = document.getElementById("libraryFolderSelect");
+  const convInput = document.getElementById("libraryConvId");
+  if (!dialog || !markSelect || !titleInput || !noteInput || !folderSelect || !convInput) return;
+
+  markDialogContext = ctx;
+  const existing = (latestLibrary.entries || []).find(
+    (e) => e.conversationId === ctx.conversationId,
+  );
+  markSelect.value = existing?.mark || "todo";
+  titleInput.value = existing?.title || ctx.title || "";
+  noteInput.value = existing?.note || "";
+  convInput.value = ctx.conversationId;
+  fillFolderSelect(folderSelect, markSelect.value, existing?.folderId || "");
+  markSelect.onchange = () => fillFolderSelect(folderSelect, markSelect.value, "");
+  if (typeof dialog.showModal === "function") dialog.showModal();
+}
+
+function bindMarkDialog() {
+  const form = document.getElementById("libraryMarkForm");
+  const dialog = document.getElementById("libraryMarkDialog");
+  const saveBtn = document.getElementById("libraryMarkSave");
+  if (!form || !dialog || !saveBtn) return;
+
+  form.addEventListener("submit", (ev) => {
+    const submitter = ev.submitter;
+    if (submitter && submitter.value === "cancel") {
+      markDialogContext = null;
+      return;
+    }
+    ev.preventDefault();
+    void submitMarkDialog();
+  });
+}
+
+async function submitMarkDialog() {
+  const dialog = document.getElementById("libraryMarkDialog");
+  const markSelect = document.getElementById("libraryMarkSelect");
+  const titleInput = document.getElementById("libraryTitleInput");
+  const noteInput = document.getElementById("libraryNoteInput");
+  const folderSelect = document.getElementById("libraryFolderSelect");
+  const ctx = markDialogContext;
+  if (!ctx || !markSelect) return;
+
+  const payload = {
+    conversationId: ctx.conversationId,
+    mark: markSelect.value,
+    title: titleInput?.value || "",
+    note: noteInput?.value || "",
+    folderId: folderSelect?.value ? folderSelect.value : null,
+    workspacePath: ctx.workspacePath,
+    workspaceLabel: ctx.workspaceLabel,
+    projectKey: ctx.projectKey,
+    chatName: ctx.chatName,
+    transcriptPath: ctx.transcriptPath,
+  };
+
+  try {
+    const res = await fetch("/api/library/entries", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || `标注失败 (${res.status})`);
+      return;
+    }
+    showToast(payload.mark === "archive" ? "已归档" : "已标为代办");
+    markDialogContext = null;
+    if (dialog?.open) dialog.close();
+    // Stay on Reminder tab by design
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "标注失败");
+  }
+}
+
+function renderLibraryPane(mark) {
+  const treeEl = document.getElementById(mark === "todo" ? "todoTree" : "archiveTree");
+  const listElLib = document.getElementById(mark === "todo" ? "todoList" : "archiveList");
+  if (!treeEl || !listElLib) return;
+
+  const selectedFolder = libraryFolderFilter[mark];
+  const folders = foldersForMark(latestLibrary.folders || [], mark);
+  const tree = buildFolderTree(folders);
+
+  function renderNodes(nodes) {
+    return nodes
+      .map((n) => {
+        const sel = selectedFolder === n.folder.id ? " is-selected" : "";
+        return `<div class="library-folder-node">
+          <button type="button" class="library-folder-btn${sel}" data-folder-id="${escapeHtml(n.folder.id)}">${escapeHtml(n.folder.name)}</button>
+          <div class="library-folder-children">${renderNodes(n.children)}</div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  treeEl.innerHTML = `
+    <div class="library-tree-actions">
+      <button type="button" data-action="new-folder">新建文件夹</button>
+      <button type="button" data-action="rename-folder">重命名</button>
+      <button type="button" data-action="delete-folder">删除文件夹</button>
+    </div>
+    <button type="button" class="library-unfiled-btn${selectedFolder == null ? " is-selected" : ""}" data-folder-id="">未归组</button>
+    ${renderNodes(tree)}
+  `;
+
+  treeEl.querySelectorAll("[data-folder-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-folder-id");
+      libraryFolderFilter[mark] = id ? id : null;
+      renderLibraryPane(mark);
+    });
+  });
+
+  const newBtn = treeEl.querySelector('[data-action="new-folder"]');
+  if (newBtn) {
+    newBtn.addEventListener("click", () => void createLibraryFolder(mark));
+  }
+  const renameBtn = treeEl.querySelector('[data-action="rename-folder"]');
+  if (renameBtn) {
+    renameBtn.addEventListener("click", () => void renameLibraryFolder(mark));
+  }
+  const delBtn = treeEl.querySelector('[data-action="delete-folder"]');
+  if (delBtn) {
+    delBtn.addEventListener("click", () => void deleteLibraryFolder(mark));
+  }
+
+  const entries = entriesInFolder(latestLibrary.entries || [], mark, selectedFolder);
+  if (!entries.length) {
+    listElLib.innerHTML = `<p class="empty-state">暂无条目</p>`;
+    return;
+  }
+
+  listElLib.innerHTML = "";
+  for (const entry of entries) {
+    const card = document.createElement("div");
+    card.className = `library-entry${entry.stale ? " is-stale" : ""}`;
+    const title = entryDisplayTitle(entry);
+    card.innerHTML = `
+      <div class="library-entry-title">${escapeHtml(title)}${
+        entry.stale ? `<span class="library-stale-badge">源会话不可用</span>` : ""
+      }</div>
+      <div class="library-entry-meta">${escapeHtml(entry.workspaceLabel || entry.workspacePath || "")}</div>
+      ${entry.note ? `<div class="library-entry-note">${escapeHtml(entry.note)}</div>` : ""}
+      <div class="library-entry-actions">
+        <button type="button" data-act="edit">编辑</button>
+        <button type="button" data-act="move">移文件夹</button>
+        <button type="button" data-act="flip">${mark === "todo" ? "归档" : "改代办"}</button>
+        <button type="button" data-act="unmark">取消标注</button>
+        <button type="button" data-act="open" ${entry.workspacePath ? "" : "disabled"}>↗</button>
+      </div>
+    `;
+    card.querySelector('[data-act="edit"]')?.addEventListener("click", () => {
+      openMarkDialog({
+        conversationId: entry.conversationId,
+        workspacePath: entry.workspacePath,
+        workspaceLabel: entry.workspaceLabel,
+        projectKey: entry.projectKey,
+        chatName: entry.chatName,
+        transcriptPath: entry.transcriptPath,
+        title: entry.title || entry.chatName || "",
+      });
+    });
+    card.querySelector('[data-act="move"]')?.addEventListener("click", () => {
+      void moveLibraryEntry(entry, mark);
+    });
+    card.querySelector('[data-act="flip"]')?.addEventListener("click", () => {
+      void patchLibraryEntry(entry.conversationId, {
+        mark: mark === "todo" ? "archive" : "todo",
+      });
+    });
+    card.querySelector('[data-act="unmark"]')?.addEventListener("click", () => {
+      void unmarkLibraryEntry(entry.conversationId);
+    });
+    card.querySelector('[data-act="open"]')?.addEventListener("click", () => {
+      void openInCursor({
+        id: entry.conversationId,
+        workspacePath: entry.workspacePath,
+      });
+    });
+    listElLib.appendChild(card);
+  }
+}
+
+async function createLibraryFolder(mark) {
+  const name = window.prompt("文件夹名称");
+  if (!name || !name.trim()) return;
+  const parentId = libraryFolderFilter[mark];
+  try {
+    const res = await fetch("/api/library/folders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mark, name: name.trim(), parentId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) showToast(data.error || "创建失败");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "创建失败");
+  }
+}
+
+async function renameLibraryFolder(mark) {
+  const id = libraryFolderFilter[mark];
+  if (!id) {
+    showToast("请先选中文件夹");
+    return;
+  }
+  const folder = (latestLibrary.folders || []).find((f) => f.id === id);
+  const name = window.prompt("新名称", folder?.name || "");
+  if (!name || !name.trim()) return;
+  try {
+    const res = await fetch(`/api/library/folders/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) showToast(data.error || "重命名失败");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "重命名失败");
+  }
+}
+
+async function deleteLibraryFolder(mark) {
+  const id = libraryFolderFilter[mark];
+  if (!id) {
+    showToast("请先选中文件夹");
+    return;
+  }
+  if (!window.confirm("删除该文件夹？子文件夹与条目将上移到上一级。")) return;
+  try {
+    const res = await fetch(`/api/library/folders/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || "删除失败");
+      return;
+    }
+    libraryFolderFilter[mark] = null;
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "删除失败");
+  }
+}
+
+async function moveLibraryEntry(entry, mark) {
+  const opts = folderSelectOptions(latestLibrary.folders || [], mark);
+  const choices = ["未归组", ...opts.map((o) => o.label)];
+  const pick = window.prompt(
+    `移到文件夹（输入序号 0-${opts.length}）:\n${choices.map((c, i) => `${i}. ${c}`).join("\n")}`,
+    "0",
+  );
+  if (pick == null) return;
+  const idx = Number(pick);
+  if (!Number.isInteger(idx) || idx < 0 || idx > opts.length) {
+    showToast("无效序号");
+    return;
+  }
+  const folderId = idx === 0 ? null : opts[idx - 1].id;
+  await patchLibraryEntry(entry.conversationId, { folderId });
+}
+
+async function patchLibraryEntry(conversationId, patch) {
+  try {
+    const res = await fetch(`/api/library/entries/${encodeURIComponent(conversationId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) showToast(data.error || "更新失败");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "更新失败");
+  }
+}
+
+async function unmarkLibraryEntry(conversationId) {
+  if (!window.confirm("取消标注？标题与备注将丢弃。")) return;
+  try {
+    const res = await fetch(`/api/library/entries/${encodeURIComponent(conversationId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || "取消失败");
+    } else {
+      showToast("已取消标注");
+    }
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "取消失败");
+  }
+}
+
+function applyLibrarySnapshot(payload) {
+  latestLibrary = payload && typeof payload === "object"
+    ? {
+        folders: Array.isArray(payload.folders) ? payload.folders : [],
+        entries: Array.isArray(payload.entries) ? payload.entries : [],
+      }
+    : { folders: [], entries: [] };
+  if (activeTab === "todo" || activeTab === "archive") {
+    renderLibraryPane(activeTab);
+  }
+}
+
+async function fetchLibrary() {
+  try {
+    const res = await fetch("/api/library");
+    applyLibrarySnapshot(await res.json());
+  } catch {
+    applyLibrarySnapshot({ folders: [], entries: [] });
+  }
+}
+
 function connectWs() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
@@ -645,6 +1045,8 @@ function connectWs() {
       render(msg.payload);
     } else if (msg.type === "reminders") {
       renderInbox(msg.payload);
+    } else if (msg.type === "library") {
+      applyLibrarySnapshot(msg.payload);
     } else if (msg.type === "open-chat-result") {
       const p = msg.payload || {};
       const id = typeof p.conversationId === "string" ? p.conversationId : "";
@@ -661,6 +1063,7 @@ function connectWs() {
     setTimeout(() => {
       void fetchSessions().catch(() => {});
       void fetchReminders().catch(() => {});
+      void fetchLibrary().catch(() => {});
       connectWs();
     }, 1000);
   };
@@ -670,8 +1073,17 @@ async function boot() {
   bindFullscreen();
   bindViewControls();
   bindSoundToggle();
+  bindTabs();
+  bindMarkDialog();
   syncChrome();
-  await Promise.all([fetchSessions(), fetchHooksStatus(), fetchDaemonPrefs(), fetchReminders()]);
+  setActiveTab(loadLibraryTab());
+  await Promise.all([
+    fetchSessions(),
+    fetchHooksStatus(),
+    fetchDaemonPrefs(),
+    fetchReminders(),
+    fetchLibrary(),
+  ]);
   await handleDeepLink();
   connectWs();
 }
