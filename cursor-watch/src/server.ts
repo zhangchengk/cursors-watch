@@ -7,6 +7,8 @@ import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import { BridgeHub } from "./bridge/hub.js";
 import { hooksStatus } from "./hooks-install.js";
+import { LibraryHub } from "./library/hub.js";
+import type { LibraryMark } from "./library/types.js";
 import { openChatInCursor } from "./open-chat.js";
 import { openWorkspaceInCursor } from "./open-workspace.js";
 import { loadWatchPrefs, saveWatchPrefs } from "./prefs.js";
@@ -18,12 +20,19 @@ const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "web");
 export type BuildServerOptions = {
   homeDir?: string;
   reminderHub?: ReminderHub;
+  libraryHub?: LibraryHub;
   bridgeHub?: BridgeHub;
 };
+
+function isLibraryMark(v: unknown): v is LibraryMark {
+  return v === "todo" || v === "archive";
+}
 
 export async function buildServer(store: SessionStore, opts?: BuildServerOptions) {
   const homeDir = opts?.homeDir ?? os.homedir();
   const reminderHub = opts?.reminderHub ?? new ReminderHub(homeDir);
+  const libraryHub = opts?.libraryHub ?? new LibraryHub(homeDir);
+  libraryHub.setSessionProvider(() => store.getSessions());
   const bridgeHub = opts?.bridgeHub ?? new BridgeHub();
   const panelSockets = new Set<{ send: (data: string) => void }>();
 
@@ -48,6 +57,7 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
   app.get("/api/health", async () => ({ ok: true }));
   app.get("/api/sessions", async () => store.getSessions());
   app.get("/api/reminders", async () => reminderHub.listPending());
+  app.get("/api/library", async () => libraryHub.getSnapshot(store.getSessions()));
   app.get("/api/prefs", async () => loadWatchPrefs(homeDir));
   app.get("/api/hooks-status", async () => hooksStatus(homeDir));
   app.get("/api/bridge-status", async () => bridgeHub.status());
@@ -70,15 +80,176 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
     },
   );
 
+  app.post<{
+    Body: {
+      conversationId?: unknown;
+      mark?: unknown;
+      folderId?: unknown;
+      title?: unknown;
+      note?: unknown;
+      projectKey?: unknown;
+      workspacePath?: unknown;
+      workspaceLabel?: unknown;
+      chatName?: unknown;
+      transcriptPath?: unknown;
+    };
+  }>("/api/library/entries", async (req, reply) => {
+    const conversationId =
+      typeof req.body?.conversationId === "string" ? req.body.conversationId : "";
+    const mark = req.body?.mark;
+    if (!conversationId.trim() || !isLibraryMark(mark)) {
+      return reply.code(400).send({ ok: false, error: "conversationId and mark required" });
+    }
+    try {
+      const entry = libraryHub.upsertEntry({
+        conversationId,
+        mark,
+        folderId:
+          req.body?.folderId === null
+            ? null
+            : typeof req.body?.folderId === "string"
+              ? req.body.folderId
+              : undefined,
+        title: typeof req.body?.title === "string" ? req.body.title : undefined,
+        note: typeof req.body?.note === "string" ? req.body.note : undefined,
+        projectKey: typeof req.body?.projectKey === "string" ? req.body.projectKey : undefined,
+        workspacePath:
+          typeof req.body?.workspacePath === "string" ? req.body.workspacePath : undefined,
+        workspaceLabel:
+          typeof req.body?.workspaceLabel === "string" ? req.body.workspaceLabel : undefined,
+        chatName: typeof req.body?.chatName === "string" ? req.body.chatName : undefined,
+        transcriptPath:
+          typeof req.body?.transcriptPath === "string" ? req.body.transcriptPath : undefined,
+      });
+      return { ok: true, entry };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = /cycle/i.test(msg) ? 409 : 400;
+      return reply.code(code).send({ ok: false, error: msg });
+    }
+  });
+
+  app.patch<{
+    Params: { conversationId: string };
+    Body: Record<string, unknown>;
+  }>("/api/library/entries/:conversationId", async (req, reply) => {
+    const body = req.body ?? {};
+    try {
+      const entry = libraryHub.patchEntry(req.params.conversationId, {
+        mark: isLibraryMark(body.mark) ? body.mark : undefined,
+        folderId:
+          body.folderId === null
+            ? null
+            : typeof body.folderId === "string"
+              ? body.folderId
+              : undefined,
+        title:
+          body.title === null
+            ? null
+            : typeof body.title === "string"
+              ? body.title
+              : undefined,
+        note:
+          body.note === null ? null : typeof body.note === "string" ? body.note : undefined,
+        projectKey: typeof body.projectKey === "string" ? body.projectKey : undefined,
+        workspacePath: typeof body.workspacePath === "string" ? body.workspacePath : undefined,
+        workspaceLabel:
+          typeof body.workspaceLabel === "string" ? body.workspaceLabel : undefined,
+        chatName: typeof body.chatName === "string" ? body.chatName : undefined,
+        transcriptPath:
+          typeof body.transcriptPath === "string" ? body.transcriptPath : undefined,
+      });
+      if (!entry) return reply.code(404).send({ ok: false });
+      return { ok: true, entry };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = /cycle/i.test(msg) ? 409 : 400;
+      return reply.code(code).send({ ok: false, error: msg });
+    }
+  });
+
+  app.delete<{ Params: { conversationId: string } }>(
+    "/api/library/entries/:conversationId",
+    async (req, reply) => {
+      const ok = libraryHub.deleteEntry(req.params.conversationId);
+      if (!ok) return reply.code(404).send({ ok: false });
+      return { ok: true };
+    },
+  );
+
+  app.post<{
+    Body: { mark?: unknown; parentId?: unknown; name?: unknown; sortKey?: unknown };
+  }>("/api/library/folders", async (req, reply) => {
+    const mark = req.body?.mark;
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    if (!isLibraryMark(mark) || !name.trim()) {
+      return reply.code(400).send({ ok: false, error: "mark and name required" });
+    }
+    try {
+      const folder = libraryHub.createFolder({
+        mark,
+        name,
+        parentId:
+          req.body?.parentId === null
+            ? null
+            : typeof req.body?.parentId === "string"
+              ? req.body.parentId
+              : undefined,
+        sortKey: typeof req.body?.sortKey === "number" ? req.body.sortKey : undefined,
+      });
+      return { ok: true, folder };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({ ok: false, error: msg });
+    }
+  });
+
+  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
+    "/api/library/folders/:id",
+    async (req, reply) => {
+      const body = req.body ?? {};
+      try {
+        const folder = libraryHub.patchFolder(req.params.id, {
+          name: typeof body.name === "string" ? body.name : undefined,
+          parentId:
+            body.parentId === null
+              ? null
+              : typeof body.parentId === "string"
+                ? body.parentId
+                : undefined,
+          sortKey: typeof body.sortKey === "number" ? body.sortKey : undefined,
+        });
+        if (!folder) return reply.code(404).send({ ok: false });
+        return { ok: true, folder };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const code = /cycle/i.test(msg) ? 409 : 400;
+        return reply.code(code).send({ ok: false, error: msg });
+      }
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>("/api/library/folders/:id", async (req, reply) => {
+    const ok = libraryHub.deleteFolder(req.params.id);
+    if (!ok) return reply.code(404).send({ ok: false });
+    return { ok: true };
+  });
+
   app.post<{ Body: { path?: string } }>("/api/open-workspace", async (req, reply) => {
     const workspacePath = typeof req.body?.path === "string" ? req.body.path : "";
     const result = await openWorkspaceInCursor({
       workspacePath,
       sessions: store.getSessions(),
-      extraAllowedPaths: reminderHub
-        .listPending()
-        .map((r) => r.workspacePath)
-        .filter((p): p is string => typeof p === "string" && p.trim().length > 0),
+      extraAllowedPaths: [
+        ...reminderHub
+          .listPending()
+          .map((r) => r.workspacePath)
+          .filter((p): p is string => typeof p === "string" && p.trim().length > 0),
+        ...libraryHub
+          .rawState()
+          .entries.map((e) => e.workspacePath)
+          .filter((p): p is string => typeof p === "string" && p.trim().length > 0),
+      ],
     });
     if (!result.ok) {
       return reply.code(result.statusCode ?? 400).send({ ok: false, error: result.error });
@@ -105,6 +276,7 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
         workspacePath,
         sessions: store.getSessions(),
         reminders: reminderHub.listPending(),
+        libraryEntries: libraryHub.rawState().entries,
         bridge: bridgeHub,
         onFocusResult: (focusResult) => {
           broadcastPanel({
@@ -141,14 +313,22 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
     const sendReminders = () => {
       socket.send(JSON.stringify({ type: "reminders", payload: reminderHub.listPending() }));
     };
+    const sendLibrary = () => {
+      socket.send(
+        JSON.stringify({ type: "library", payload: libraryHub.getSnapshot(store.getSessions()) }),
+      );
+    };
     sendSessions();
     sendReminders();
+    sendLibrary();
     const unsubSessions = store.subscribe(() => sendSessions());
     const unsubReminders = reminderHub.subscribe(() => sendReminders());
+    const unsubLibrary = libraryHub.subscribe(() => sendLibrary());
     socket.on("close", () => {
       panelSockets.delete(socket);
       unsubSessions();
       unsubReminders();
+      unsubLibrary();
     });
   });
 

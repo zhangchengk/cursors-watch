@@ -6,6 +6,7 @@ import { SessionStore } from "../src/store.js";
 import { buildServer } from "../src/server.js";
 import { BridgeHub } from "../src/bridge/hub.js";
 import { ReminderHub } from "../src/reminders/hub.js";
+import { LibraryHub } from "../src/library/hub.js";
 import { upsertPendingReminder } from "../src/reminders/store.js";
 import { saveWatchPrefs, loadWatchPrefs } from "../src/prefs.js";
 import { installHooks } from "../src/hooks-install.js";
@@ -76,10 +77,12 @@ describe("buildServer", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   let home: string;
   let hub: ReminderHub;
+  let libraryHub: LibraryHub;
 
   beforeAll(async () => {
     home = tempHome();
     hub = new ReminderHub(home);
+    libraryHub = new LibraryHub(home);
     store.replaceAll([
       {
         id: "x",
@@ -96,7 +99,7 @@ describe("buildServer", () => {
         recentMessages: [],
       } satisfies SessionState,
     ]);
-    app = await buildServer(store, { homeDir: home, reminderHub: hub });
+    app = await buildServer(store, { homeDir: home, reminderHub: hub, libraryHub });
     await app.listen({ host: "127.0.0.1", port: 0 });
   });
 
@@ -298,6 +301,104 @@ describe("buildServer", () => {
       true,
     );
 
+    ws.close();
+  });
+
+  it("GET /api/library returns empty snapshot", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/library" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ folders: [], entries: [] });
+  });
+
+  it("POST/PATCH/DELETE library entries and folders", async () => {
+    const createFolder = await app.inject({
+      method: "POST",
+      url: "/api/library/folders",
+      payload: { mark: "todo", name: "Ideas" },
+    });
+    expect(createFolder.statusCode).toBe(200);
+    const folderId = (createFolder.json() as { folder: { id: string } }).folder.id;
+
+    const post = await app.inject({
+      method: "POST",
+      url: "/api/library/entries",
+      payload: {
+        conversationId: "lib-1",
+        mark: "todo",
+        folderId,
+        title: "T1",
+        workspacePath: "/Users/u/A",
+        transcriptPath: "/t",
+      },
+    });
+    expect(post.statusCode).toBe(200);
+
+    const listed = await app.inject({ method: "GET", url: "/api/library" });
+    const body = listed.json() as {
+      entries: Array<{ conversationId: string; mark: string; folderId: string | null; stale: boolean }>;
+    };
+    expect(body.entries).toHaveLength(1);
+    expect(body.entries[0]).toMatchObject({
+      conversationId: "lib-1",
+      mark: "todo",
+      folderId,
+    });
+    expect(typeof body.entries[0]!.stale).toBe("boolean");
+
+    const moved = await app.inject({
+      method: "POST",
+      url: "/api/library/entries",
+      payload: { conversationId: "lib-1", mark: "archive", title: "T1" },
+    });
+    expect(moved.statusCode).toBe(200);
+    expect((moved.json() as { entry: { folderId: null; mark: string } }).entry).toMatchObject({
+      mark: "archive",
+      folderId: null,
+    });
+
+    const delFolder = await app.inject({
+      method: "DELETE",
+      url: `/api/library/folders/${folderId}`,
+    });
+    expect(delFolder.statusCode).toBe(200);
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: "/api/library/entries/lib-1",
+    });
+    expect(del.statusCode).toBe(200);
+    const after = await app.inject({ method: "GET", url: "/api/library" });
+    expect((after.json() as { entries: unknown[] }).entries).toEqual([]);
+  });
+
+  it("WS sends library on connect and after entry upsert", async () => {
+    const port = listenPort(app);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const inbox = collectWs(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve());
+      ws.addEventListener("error", (e) => reject(e));
+    });
+
+    await inbox.waitFor((m) => m.type === "library");
+
+    const nextLib = inbox.waitFor(
+      (m) =>
+        m.type === "library" &&
+        (m.payload as { entries: Array<{ conversationId: string }> }).entries.some(
+          (e) => e.conversationId === "lib-ws",
+        ),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/library/entries",
+      payload: { conversationId: "lib-ws", mark: "todo", title: "ws" },
+    });
+    expect(res.statusCode).toBe(200);
+    await nextLib;
+
+    await app.inject({ method: "DELETE", url: "/api/library/entries/lib-ws" });
     ws.close();
   });
 });
