@@ -954,9 +954,14 @@ function openLibraryPrompt(opts) {
   }
   okBtn.textContent = opts.okLabel || (mode === "confirm" ? "确认" : "确定");
 
-  if (mode === "select") {
-    textLabel.hidden = true;
-    selectLabel.hidden = false;
+  const showText = mode === "text";
+  const showSelect = mode === "select";
+  textLabel.hidden = !showText;
+  textLabel.style.display = showText ? "" : "none";
+  selectLabel.hidden = !showSelect;
+  selectLabel.style.display = showSelect ? "" : "none";
+
+  if (showSelect) {
     selectCaption.textContent = opts.label || "文件夹";
     selectEl.innerHTML = (opts.options || [])
       .map(
@@ -965,14 +970,11 @@ function openLibraryPrompt(opts) {
       )
       .join("");
     selectEl.value = opts.defaultValue ?? (opts.options?.[0]?.id ?? "");
-  } else if (mode === "confirm") {
-    textLabel.hidden = true;
-    selectLabel.hidden = true;
-  } else {
-    textLabel.hidden = false;
-    selectLabel.hidden = true;
+  } else if (showText) {
     textCaption.textContent = opts.label || "名称";
     textInput.value = opts.defaultValue || "";
+  } else {
+    textInput.value = "";
   }
 
   return new Promise((resolve) => {
