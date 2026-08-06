@@ -34,6 +34,10 @@ export function prefsFile(home = os.homedir()): string {
   return path.join(stateDir(home), "prefs.json");
 }
 
+export function libraryFile(home = os.homedir()): string {
+  return path.join(stateDir(home), "library.json");
+}
+
 /** Exact markers for /loop sentinel shell commands (substring match). */
 export const LOOP_SENTINEL_MARKERS = ["AGENT_LOOP_TICK_", "AGENT_LOOP_WAKE_"] as const;
 

@@ -1,0 +1,327 @@
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import { libraryFile, stateDir } from "../constants.js";
+import type {
+  CreateFolderInput,
+  LibraryEntry,
+  LibraryFolder,
+  LibraryMark,
+  LibraryState,
+  PatchFolderInput,
+  PatchLibraryEntryInput,
+  UpsertLibraryEntryInput,
+} from "./types.js";
+
+const EMPTY: LibraryState = { version: 1, folders: [], entries: [] };
+
+function ensureStateDir(home: string): void {
+  fs.mkdirSync(stateDir(home), { recursive: true });
+}
+
+function isLibraryMark(v: unknown): v is LibraryMark {
+  return v === "todo" || v === "archive";
+}
+
+function isFolder(raw: unknown): raw is LibraryFolder {
+  if (!raw || typeof raw !== "object") return false;
+  const o = raw as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    !!o.id &&
+    isLibraryMark(o.mark) &&
+    (o.parentId === null || typeof o.parentId === "string") &&
+    typeof o.name === "string" &&
+    typeof o.sortKey === "number" &&
+    Number.isFinite(o.sortKey)
+  );
+}
+
+function isEntry(raw: unknown): raw is LibraryEntry {
+  if (!raw || typeof raw !== "object") return false;
+  const o = raw as Record<string, unknown>;
+  return (
+    typeof o.conversationId === "string" &&
+    !!o.conversationId &&
+    isLibraryMark(o.mark) &&
+    (o.folderId === null || typeof o.folderId === "string") &&
+    typeof o.updatedAt === "number" &&
+    Number.isFinite(o.updatedAt)
+  );
+}
+
+function saveLibrary(home: string, state: LibraryState): void {
+  ensureStateDir(home);
+  const file = libraryFile(home);
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  fs.renameSync(tmp, file);
+}
+
+export function loadLibrary(home: string): LibraryState {
+  const file = libraryFile(home);
+  if (!fs.existsSync(file)) return { ...EMPTY, folders: [], entries: [] };
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+    if (!raw || typeof raw !== "object") return { ...EMPTY, folders: [], entries: [] };
+    const o = raw as Record<string, unknown>;
+    const folders = Array.isArray(o.folders) ? o.folders.filter(isFolder) : [];
+    const entries = Array.isArray(o.entries) ? o.entries.filter(isEntry) : [];
+    return { version: 1, folders, entries };
+  } catch {
+    return { ...EMPTY, folders: [], entries: [] };
+  }
+}
+
+function folderById(state: LibraryState, id: string): LibraryFolder | undefined {
+  return state.folders.find((f) => f.id === id);
+}
+
+function assertFolderForMark(
+  state: LibraryState,
+  folderId: string | null | undefined,
+  mark: LibraryMark,
+): string | null {
+  if (folderId == null || folderId === "") return null;
+  const folder = folderById(state, folderId);
+  if (!folder) throw new Error(`folder not found: ${folderId}`);
+  if (folder.mark !== mark) throw new Error(`folder mark mismatch for ${folderId}`);
+  return folder.id;
+}
+
+function wouldCreateCycle(
+  state: LibraryState,
+  folderId: string,
+  newParentId: string | null,
+): boolean {
+  if (newParentId == null) return false;
+  if (newParentId === folderId) return true;
+  let cur: string | null = newParentId;
+  const guard = new Set<string>();
+  while (cur) {
+    if (cur === folderId) return true;
+    if (guard.has(cur)) return true;
+    guard.add(cur);
+    cur = folderById(state, cur)?.parentId ?? null;
+  }
+  return false;
+}
+
+function applyOptionalString(
+  target: LibraryEntry,
+  key: keyof LibraryEntry,
+  value: string | undefined,
+): void {
+  if (value === undefined) return;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    delete (target as Record<string, unknown>)[key];
+  } else {
+    (target as Record<string, unknown>)[key] = trimmed;
+  }
+}
+
+export function upsertEntry(home: string, input: UpsertLibraryEntryInput): LibraryEntry {
+  const conversationId = input.conversationId?.trim() ?? "";
+  if (!conversationId) throw new Error("conversationId required");
+  if (!isLibraryMark(input.mark)) throw new Error("invalid mark");
+
+  const state = loadLibrary(home);
+  const idx = state.entries.findIndex((e) => e.conversationId === conversationId);
+  const prev = idx >= 0 ? state.entries[idx]! : undefined;
+
+  let folderId: string | null = null;
+  if (input.folderId !== undefined) {
+    folderId = assertFolderForMark(state, input.folderId, input.mark);
+  } else if (prev && prev.mark === input.mark) {
+    folderId = prev.folderId;
+  } else {
+    folderId = null;
+  }
+
+  const next: LibraryEntry = {
+    conversationId,
+    mark: input.mark,
+    folderId,
+    updatedAt: Date.now(),
+  };
+
+  if (input.title !== undefined) applyOptionalString(next, "title", input.title);
+  else if (prev?.title) next.title = prev.title;
+
+  if (input.note !== undefined) applyOptionalString(next, "note", input.note);
+  else if (prev?.note) next.note = prev.note;
+
+  const snapKeys = [
+    "projectKey",
+    "workspacePath",
+    "workspaceLabel",
+    "chatName",
+    "transcriptPath",
+  ] as const;
+  for (const k of snapKeys) {
+    if (input[k] !== undefined) applyOptionalString(next, k, input[k]);
+    else if (prev?.[k]) next[k] = prev[k];
+  }
+
+  if (idx >= 0) state.entries[idx] = next;
+  else state.entries.push(next);
+
+  saveLibrary(home, state);
+  return next;
+}
+
+export function patchEntry(
+  home: string,
+  conversationId: string,
+  patch: PatchLibraryEntryInput,
+): LibraryEntry | null {
+  const id = conversationId?.trim() ?? "";
+  if (!id) return null;
+  const state = loadLibrary(home);
+  const idx = state.entries.findIndex((e) => e.conversationId === id);
+  if (idx < 0) return null;
+  const prev = state.entries[idx]!;
+
+  const mark = patch.mark !== undefined ? patch.mark : prev.mark;
+  if (!isLibraryMark(mark)) throw new Error("invalid mark");
+
+  let folderId = prev.folderId;
+  if (patch.mark !== undefined && patch.mark !== prev.mark) {
+    folderId = null;
+  }
+  if (patch.folderId !== undefined) {
+    folderId = assertFolderForMark(state, patch.folderId, mark);
+  }
+
+  const next: LibraryEntry = {
+    ...prev,
+    mark,
+    folderId,
+    updatedAt: Date.now(),
+  };
+
+  if (patch.title !== undefined) {
+    if (patch.title === null || !String(patch.title).trim()) delete next.title;
+    else next.title = String(patch.title).trim();
+  }
+  if (patch.note !== undefined) {
+    if (patch.note === null || !String(patch.note).trim()) delete next.note;
+    else next.note = String(patch.note).trim();
+  }
+
+  for (const k of [
+    "projectKey",
+    "workspacePath",
+    "workspaceLabel",
+    "chatName",
+    "transcriptPath",
+  ] as const) {
+    if (patch[k] !== undefined) applyOptionalString(next, k, patch[k]);
+  }
+
+  state.entries[idx] = next;
+  saveLibrary(home, state);
+  return next;
+}
+
+export function deleteEntry(home: string, conversationId: string): boolean {
+  const id = conversationId?.trim() ?? "";
+  if (!id) return false;
+  const state = loadLibrary(home);
+  const before = state.entries.length;
+  state.entries = state.entries.filter((e) => e.conversationId !== id);
+  if (state.entries.length === before) return false;
+  saveLibrary(home, state);
+  return true;
+}
+
+export function createFolder(home: string, input: CreateFolderInput): LibraryFolder {
+  const name = input.name?.trim() ?? "";
+  if (!name) throw new Error("folder name required");
+  if (!isLibraryMark(input.mark)) throw new Error("invalid mark");
+
+  const state = loadLibrary(home);
+  const parentId =
+    input.parentId == null || input.parentId === ""
+      ? null
+      : assertFolderForMark(state, input.parentId, input.mark);
+
+  const siblings = state.folders.filter(
+    (f) => f.mark === input.mark && f.parentId === parentId,
+  );
+  const sortKey =
+    input.sortKey !== undefined && Number.isFinite(input.sortKey)
+      ? input.sortKey
+      : siblings.reduce((m, f) => Math.max(m, f.sortKey), -1) + 1;
+
+  const folder: LibraryFolder = {
+    id: randomUUID(),
+    mark: input.mark,
+    parentId,
+    name,
+    sortKey,
+  };
+  state.folders.push(folder);
+  saveLibrary(home, state);
+  return folder;
+}
+
+export function patchFolder(
+  home: string,
+  id: string,
+  patch: PatchFolderInput,
+): LibraryFolder | null {
+  const state = loadLibrary(home);
+  const idx = state.folders.findIndex((f) => f.id === id);
+  if (idx < 0) return null;
+  const prev = state.folders[idx]!;
+
+  let parentId = prev.parentId;
+  if (patch.parentId !== undefined) {
+    if (patch.parentId === null || patch.parentId === "") {
+      parentId = null;
+    } else {
+      const parent = folderById(state, patch.parentId);
+      if (!parent) throw new Error(`folder not found: ${patch.parentId}`);
+      if (parent.mark !== prev.mark) throw new Error("folder mark mismatch");
+      if (wouldCreateCycle(state, id, patch.parentId)) {
+        throw new Error("folder cycle");
+      }
+      parentId = patch.parentId;
+    }
+  }
+
+  const name =
+    patch.name !== undefined ? patch.name.trim() : prev.name;
+  if (!name) throw new Error("folder name required");
+
+  const next: LibraryFolder = {
+    ...prev,
+    parentId,
+    name,
+    sortKey:
+      patch.sortKey !== undefined && Number.isFinite(patch.sortKey)
+        ? patch.sortKey
+        : prev.sortKey,
+  };
+  state.folders[idx] = next;
+  saveLibrary(home, state);
+  return next;
+}
+
+export function deleteFolder(home: string, id: string): boolean {
+  const state = loadLibrary(home);
+  const folder = folderById(state, id);
+  if (!folder) return false;
+  const parentId = folder.parentId;
+
+  for (const f of state.folders) {
+    if (f.parentId === id) f.parentId = parentId;
+  }
+  for (const e of state.entries) {
+    if (e.folderId === id) e.folderId = parentId;
+  }
+  state.folders = state.folders.filter((f) => f.id !== id);
+  saveLibrary(home, state);
+  return true;
+}
