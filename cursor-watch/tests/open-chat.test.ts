@@ -127,6 +127,24 @@ describe("openChatInCursor", () => {
     });
     expect(r).toEqual({ ok: true, stage: "opened" });
   });
+
+  it("allows library-only workspace paths", async () => {
+    const r = await openChatInCursor({
+      conversationId: "lib-1",
+      workspacePath: "/Users/u/archived",
+      sessions: [sess({ id: "other", workspacePath: "/Users/u/A" })],
+      libraryEntries: [{ conversationId: "lib-1", workspacePath: "/Users/u/archived" }],
+      openWorkspace: vi.fn().mockResolvedValue({ ok: true }),
+      activateCursor: vi.fn().mockResolvedValue(undefined),
+      bridge: bridgeStub({
+        hasClientForWorkspace: () => false,
+        clientIdsForWorkspace: () => [],
+        onlineClientIds: () => [],
+      }),
+      deferFocus: false,
+    });
+    expect(r).toEqual({ ok: true, stage: "opened" });
+  });
 });
 
 describe("focusChatInNewWindow", () => {

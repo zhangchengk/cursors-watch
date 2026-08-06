@@ -36,6 +36,7 @@ export type OpenChatDeps = {
   workspacePath: string;
   sessions: SessionState[];
   reminders?: Array<{ conversationId: string; workspacePath?: string }>;
+  libraryEntries?: Array<{ conversationId: string; workspacePath?: string }>;
   openWorkspace?: (args: {
     workspacePath: string;
     sessions: SessionState[];
@@ -50,10 +51,10 @@ export type OpenChatDeps = {
   onFocusResult?: (result: OpenChatFocusResult) => void;
 };
 
-function reminderPathsOf(
-  reminders: Array<{ workspacePath?: string }> | undefined,
+function knownTargetPathsOf(
+  rows: Array<{ workspacePath?: string }> | undefined,
 ): string[] {
-  return (reminders ?? [])
+  return (rows ?? [])
     .map((r) => r.workspacePath)
     .filter((p): p is string => typeof p === "string" && p.trim().length > 0);
 }
@@ -63,10 +64,14 @@ function assertOpenChatTarget(opts: {
   workspacePath: string;
   sessions: SessionState[];
   reminders?: Array<{ conversationId: string; workspacePath?: string }>;
+  libraryEntries?: Array<{ conversationId: string; workspacePath?: string }>;
 }): OpenChatResult | null {
   const conversationId = opts.conversationId?.trim() ?? "";
   const workspacePath = opts.workspacePath?.trim() ?? "";
-  const paths = reminderPathsOf(opts.reminders);
+  const paths = [
+    ...knownTargetPathsOf(opts.reminders),
+    ...knownTargetPathsOf(opts.libraryEntries),
+  ];
 
   if (!isAllowedWorkspacePath(workspacePath, opts.sessions, paths)) {
     return {
@@ -84,7 +89,11 @@ function assertOpenChatTarget(opts: {
     (r) =>
       r.conversationId === conversationId && r.workspacePath === workspacePath,
   );
-  if (!session && !reminder) {
+  const library = (opts.libraryEntries ?? []).find(
+    (r) =>
+      r.conversationId === conversationId && r.workspacePath === workspacePath,
+  );
+  if (!session && !reminder && !library) {
     return {
       ok: false,
       stage: "focus",
@@ -198,13 +207,17 @@ export async function openChatInCursor(
   const openWorkspace = opts.openWorkspace ?? openWorkspaceInCursor;
   const activateCursor = opts.activateCursor ?? (() => activateCursorApp());
   const deferFocus = opts.deferFocus !== false;
-  const reminderPaths = reminderPathsOf(opts.reminders);
+  const extraPaths = [
+    ...knownTargetPathsOf(opts.reminders),
+    ...knownTargetPathsOf(opts.libraryEntries),
+  ];
 
   const denied = assertOpenChatTarget({
     conversationId,
     workspacePath,
     sessions: opts.sessions,
     reminders: opts.reminders,
+    libraryEntries: opts.libraryEntries,
   });
   if (denied) return denied;
 
@@ -220,7 +233,7 @@ export async function openChatInCursor(
     const ws1 = await openWorkspace({
       workspacePath,
       sessions: opts.sessions,
-      extraAllowedPaths: reminderPaths,
+      extraAllowedPaths: extraPaths,
       newWindow: true,
     });
     if (!ws1.ok) {
