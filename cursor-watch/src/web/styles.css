@@ -1959,3 +1959,37 @@ body {
 .attachment-preview-loading {
   color: var(--text-muted);
 }
+
+/* library-folder-count */
+.library-folder-btn,
+.library-unfiled-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.library-folder-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-folder-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  opacity: 0.9;
+  min-width: 1.1rem;
+  text-align: right;
+}
+
+.library-folder-btn.is-selected .library-folder-count,
+.library-unfiled-btn.is-selected .library-folder-count {
+  color: color-mix(in srgb, var(--lib-ink, var(--text)) 70%, var(--text-muted));
+}
+

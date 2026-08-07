@@ -28,6 +28,7 @@ import {
   buildFolderTree,
   entryDisplayTitle,
   entriesInFolder,
+  folderChatCount,
   folderSelectOptions,
   foldersForMark,
   loadLibraryTab,
@@ -1126,6 +1127,7 @@ function renderLibraryPane(mark) {
 
   const selectedFolder = libraryFolderFilter[mark];
   const folders = foldersForMark(latestLibrary.folders || [], mark);
+  const allEntries = latestLibrary.entries || [];
   const tree = buildFolderTree(folders);
   const selectedName =
     selectedFolder == null
@@ -1139,9 +1141,10 @@ function renderLibraryPane(mark) {
     return nodes
       .map((n) => {
         const sel = selectedFolder === n.folder.id ? " is-selected" : "";
+        const count = folderChatCount(allEntries, mark, n.folder.id, folders);
         return `<div class="library-folder-node">
           <div class="library-folder-row">
-            <button type="button" class="library-folder-btn${sel}" data-folder-id="${escapeHtml(n.folder.id)}">${escapeHtml(n.folder.name)}</button>
+            <button type="button" class="library-folder-btn${sel}" data-folder-id="${escapeHtml(n.folder.id)}"><span class="library-folder-label">${escapeHtml(n.folder.name)}</span><span class="library-folder-count" aria-label="${count} 个会话">${count}</span></button>
             <div class="library-folder-more" data-folder-id="${escapeHtml(n.folder.id)}">
               <button type="button" class="library-folder-more-btn" aria-label="文件夹操作" title="文件夹操作">
                 <svg class="library-folder-more-glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -1163,12 +1166,13 @@ function renderLibraryPane(mark) {
       .join("");
   }
 
+  const unfiledCount = folderChatCount(allEntries, mark, null, folders);
   treeEl.innerHTML = `
     <div class="library-tree-toolbar">
       <button type="button" class="library-add-root" data-action="add-root" title="新建根文件夹" aria-label="新建根文件夹">+</button>
     </div>
     <div class="library-unfiled-row">
-      <button type="button" class="library-unfiled-btn${selectedFolder == null ? " is-selected" : ""}" data-folder-id="">未归组</button>
+      <button type="button" class="library-unfiled-btn${selectedFolder == null ? " is-selected" : ""}" data-folder-id=""><span class="library-folder-label">未归组</span><span class="library-folder-count" aria-label="${unfiledCount} 个会话">${unfiledCount}</span></button>
     </div>
     ${renderNodes(tree)}
   `;

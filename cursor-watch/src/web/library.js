@@ -115,6 +115,19 @@ export function entriesInFolder(entries, mark, folderId, folders) {
 }
 
 /**
+ * Sidebar badge: Chat entry count for a folder (or 未归组 when folderId is null).
+ * Same range as entriesInFolder — includes subtree; always a number (may be 0).
+ *
+ * @param {Array<{ mark: string, folderId: string|null, conversationId: string }>} entries
+ * @param {LibraryMark} mark
+ * @param {string|null} folderId
+ * @param {Array<{ id: string, parentId: string|null, mark?: string }>|undefined} folders
+ */
+export function folderChatCount(entries, mark, folderId, folders) {
+  return entriesInFolder(entries, mark, folderId, folders).length;
+}
+
+/**
  * @param {Array<{ id: string, parentId: string|null, name: string, sortKey: number, mark: string }>} folders
  * @param {LibraryMark} mark
  * @returns {Array<{ id: string, label: string }>}
