@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cursors Watch · 风格预览</title>
+    <style>
+      :root {
+        --ease: cubic-bezier(0.23, 1, 0.32, 1);
+        font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #0a0a0b;
+        color: #e8e8ea;
+        padding: 1.5rem 1.25rem 3rem;
+      }
+      .page-head {
+        max-width: 1100px;
+        margin: 0 auto 1.25rem;
+      }
+      .page-head h1 {
+        margin: 0 0 0.35rem;
+        font-size: 1.15rem;
+        letter-spacing: 0.04em;
+      }
+      .page-head p {
+        margin: 0;
+        color: #9a9aa3;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        max-width: 42rem;
+      }
+      .grid {
+        max-width: 1100px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+      @media (max-width: 860px) {
+        .grid { grid-template-columns: 1fr; }
+      }
+      .option {
+        border: 1px solid #2a2a30;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #121214;
+        display: flex;
+        flex-direction: column;
+      }
+      .option.picked {
+        border-color: #7ec8ff;
+        box-shadow: 0 0 0 1px color-mix(in srgb, #7ec8ff 40%, transparent);
+      }
+      .meta {
+        padding: 0.85rem 1rem 0.75rem;
+        border-bottom: 1px solid #24242a;
+      }
+      .meta h2 {
+        margin: 0 0 0.25rem;
+        font-size: 0.95rem;
+      }
+      .meta .tag {
+        display: inline-block;
+        font-size: 0.7rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8b8b96;
+        margin-bottom: 0.35rem;
+      }
+      .meta p {
+        margin: 0;
+        font-size: 0.8rem;
+        color: #9a9aa3;
+        line-height: 1.45;
+      }
+      .pick {
+        margin-top: 0.65rem;
+        appearance: none;
+        border: 1px solid #3a3a44;
+        background: #1a1a20;
+        color: #eee;
+        font: inherit;
+        font-size: 0.8rem;
+        padding: 0.35rem 0.7rem;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .pick:hover { border-color: #5a5a68; }
+      .option.picked .pick {
+        background: #1e2a36;
+        border-color: #7ec8ff;
+        color: #cfe9ff;
+      }
+      .stage {
+        padding: 0.75rem;
+        min-height: 280px;
+      }
+
+      /* ——— shared mini shell ——— */
+      .shell {
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--b);
+        background: var(--bg);
+        color: var(--t);
+        font-family: var(--font);
+        font-size: 11px;
+        line-height: 1.4;
+        box-shadow: var(--shadow, none);
+      }
+      .tb {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.45rem 0.6rem;
+        border-bottom: 1px solid var(--b);
+        background: var(--elev);
+      }
+      .brand { font-weight: 650; letter-spacing: var(--brand-track, 0.04em); }
+      .leds { display: flex; gap: 0.35rem; opacity: 0.9; }
+      .led { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--muted); }
+      .led i {
+        width: 6px; height: 6px; border-radius: var(--led-r, 1px);
+        background: currentColor; display: block;
+      }
+      .led.g { color: var(--g); }
+      .led.y { color: var(--y); }
+      .led.w { color: var(--muted); }
+      .tabs {
+        display: flex; gap: 0.15rem;
+        padding: 0.25rem 0.5rem 0;
+        border-bottom: 1px solid var(--b);
+        background: var(--bg);
+      }
+      .tab {
+        padding: 0.35rem 0.55rem 0.4rem;
+        color: var(--muted);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        font-size: 9px;
+        font-weight: 650;
+        position: relative;
+      }
+      .tab.on { color: var(--t); }
+      .tab.on::after {
+        content: "";
+        position: absolute; left: 0.4rem; right: 0.4rem; bottom: 0;
+        height: 2px; background: var(--accent);
+        border-radius: 1px 1px 0 0;
+      }
+      .body { padding: 0.55rem; display: grid; gap: 0.4rem; }
+      .sec {
+        font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--muted); font-weight: 650; margin-bottom: 0.15rem;
+      }
+      .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; }
+      .card {
+        border: 1px solid var(--b);
+        border-left: 3px solid var(--g);
+        border-radius: var(--card-r, 4px);
+        background: var(--card);
+        padding: 0.4rem 0.45rem;
+      }
+      .card.y { border-left-color: var(--y); }
+      .title { font-weight: 600; margin-bottom: 0.15rem; color: var(--t); }
+      .sub { color: var(--muted); font-size: 10px; margin-bottom: 0.25rem; }
+      .chip {
+        display: inline-block;
+        padding: 0.12rem 0.3rem;
+        border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--b));
+        border-left: 2px solid var(--accent);
+        border-radius: 2px 3px 3px 2px;
+        background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+        color: var(--t);
+        font-size: 9px;
+      }
+      .acts { display: flex; justify-content: flex-end; gap: 0.25rem; margin-top: 0.3rem; padding-top: 0.25rem; border-top: 1px solid var(--b); }
+      .btn {
+        border: 1px solid var(--b);
+        background: var(--elev);
+        color: var(--t);
+        font-size: 9px;
+        padding: 0.15rem 0.35rem;
+        border-radius: 3px;
+      }
+      .btn.pri {
+        border-color: color-mix(in srgb, var(--accent) 45%, var(--b));
+        background: color-mix(in srgb, var(--accent) 16%, var(--elev));
+      }
+
+      /* A Phosphor Ops */
+      .t-a {
+        --bg: #0c0d0b; --elev: #141510; --card: #181a14; --b: #2c2f24;
+        --t: #e8e6d8; --muted: #8f917f; --accent: #c8b45a; --g: #7aa85a; --y: #c9a227;
+        --font: "SF Mono", Menlo, monospace; --brand-track: 0.14em; --led-r: 1px; --card-r: 3px;
+        --shadow: inset 0 1px 0 color-mix(in srgb, #c8b45a 8%, transparent);
+      }
+      .t-a .shell {
+        background:
+          radial-gradient(500px 180px at 10% -20%, color-mix(in srgb, #c8b45a 9%, transparent), transparent 60%),
+          var(--bg);
+      }
+
+      /* B Blueprint */
+      .t-b {
+        --bg: #0b1218; --elev: #101820; --card: #121c26; --b: #243240;
+        --t: #dce8f2; --muted: #7e93a6; --accent: #4aa3c7; --g: #3d9a6a; --y: #c9a24b;
+        --font: "Avenir Next", "Segoe UI", sans-serif; --brand-track: 0.08em; --led-r: 50%; --card-r: 2px;
+        --shadow: none;
+      }
+      .t-b .shell {
+        background:
+          linear-gradient(color-mix(in srgb, #4aa3c7 6%, transparent) 1px, transparent 1px) 0 0 / 100% 12px,
+          linear-gradient(90deg, color-mix(in srgb, #4aa3c7 6%, transparent) 1px, transparent 1px) 0 0 / 12px 100%,
+          var(--bg);
+      }
+      .t-b .tab.on::after { height: 1px; }
+
+      /* C Ink Terminal */
+      .t-c {
+        --bg: #000; --elev: #0a0a0a; --card: #0f0f0f; --b: #222;
+        --t: #f2f2f2; --muted: #777; --accent: #e8e8e8; --g: #5fd68a; --y: #e0b84e;
+        --font: "SF Mono", Menlo, monospace; --brand-track: 0.18em; --led-r: 0; --card-r: 0;
+        --shadow: none;
+      }
+      .t-c .chip {
+        border-radius: 0;
+        border-left-width: 1px;
+        background: transparent;
+      }
+      .t-c .tab.on::after { background: #fff; height: 1px; }
+
+      /* D Brass Catalog */
+      .t-d {
+        --bg: #121110; --elev: #1a1816; --card: #1f1c19; --b: #342f2a;
+        --t: #efe8de; --muted: #9a9086; --accent: #c4a574; --g: #6a9e78; --y: #c4a574;
+        --font: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+        --brand-track: 0.02em; --led-r: 2px; --card-r: 6px;
+        --shadow: 0 8px 24px rgba(0,0,0,0.35);
+      }
+      .t-d .brand { font-style: italic; font-weight: 600; letter-spacing: 0; text-transform: none; font-size: 12px; }
+      .t-d .tab { font-family: "Avenir Next", sans-serif; font-style: normal; }
+      .t-d .title { font-family: "Avenir Next", sans-serif; }
+      .t-d .chip, .t-d .sub, .t-d .btn, .t-d .sec, .t-d .led { font-family: "SF Mono", Menlo, monospace; }
+
+      .footer-note {
+        max-width: 1100px;
+        margin: 1.25rem auto 0;
+        color: #6e6e78;
+        font-size: 0.8rem;
+      }
+      #choice {
+        margin-top: 0.75rem;
+        padding: 0.65rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid #2a2a30;
+        background: #141418;
+        color: #c8c8d0;
+        font-size: 0.85rem;
+        display: none;
+      }
+      #choice.show { display: block; }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <h1>Cursors Watch · 风格预览（4 选 1）</h1>
+      <p>
+        先选气质，再落到正式样式。刻意避开「酸绿黑底 / 霓虹光晕 / 毛玻璃堆砌」这几类 AI 默认脸。
+        点「选这套」告诉我编号即可。
+      </p>
+      <div id="choice"></div>
+    </header>
+
+    <div class="grid">
+      <article class="option" data-id="A">
+        <div class="meta">
+          <div class="tag">A · Phosphor Ops</div>
+          <h2>磷光运维台</h2>
+          <p>深橄榄黑 + 琥珀信号。像机房示波器：专业、偏「科技」，但不刺眼。</p>
+          <button type="button" class="pick">选这套</button>
+        </div>
+        <div class="stage t-a"></div>
+      </article>
+
+      <article class="option" data-id="B">
+        <div class="meta">
+          <div class="tag">B · Blueprint</div>
+          <h2>工程蓝图</h2>
+          <p>冷石板蓝 + 细网格。像图纸/CAD：冷静、整齐，适合扫状态。</p>
+          <button type="button" class="pick">选这套</button>
+        </div>
+        <div class="stage t-b"></div>
+      </article>
+
+      <article class="option" data-id="C">
+        <div class="meta">
+          <div class="tag">C · Ink Terminal</div>
+          <h2>纯黑终端</h2>
+          <p>近纯黑 + 直角 + 白强调线。极简残酷：信息密度高，装饰为零。</p>
+          <button type="button" class="pick">选这套</button>
+        </div>
+        <div class="stage t-c"></div>
+      </article>
+
+      <article class="option" data-id="D">
+        <div class="meta">
+          <div class="tag">D · Brass Catalog</div>
+          <h2>黄铜馆藏</h2>
+          <p>石墨底 + 铜金书脊。延续 Todo/Archive「书脊」隐喻，更偏收藏/整理气质。</p>
+          <button type="button" class="pick">选这套</button>
+        </div>
+        <div class="stage t-d"></div>
+      </article>
+    </div>
+
+    <p class="footer-note">预览文件：cursor-watch/src/web/style-previews.html（不影响正式面板，除非你指定落地某套）</p>
+
+    <template id="mini">
+      <div class="shell">
+        <div class="tb">
+          <span class="brand">Cursors Watch</span>
+          <span class="leds">
+            <span class="led g"><i></i>1</span>
+            <span class="led y"><i></i>0</span>
+            <span class="led w"><i></i>2</span>
+          </span>
+        </div>
+        <div class="tabs">
+          <span class="tab on">Reminder</span>
+          <span class="tab">Todo</span>
+          <span class="tab">Archive</span>
+        </div>
+        <div class="body">
+          <div class="sec">待确认</div>
+          <div class="cards">
+            <div class="card">
+              <div class="title">Light model… · 6min</div>
+              <div class="sub">本轮结束 · 可确认</div>
+              <span class="chip">预发分支</span>
+              <div class="acts"><span class="btn pri">确认</span><span class="btn">馆藏</span></div>
+            </div>
+            <div class="card y">
+              <div class="title">Leader Worker · 31min</div>
+              <div class="sub">等待你查看</div>
+              <span class="chip">Cursor看板</span>
+              <div class="acts"><span class="btn pri">确认</span><span class="btn">馆藏</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <script>
+      const tpl = document.getElementById("mini");
+      for (const stage of document.querySelectorAll(".stage")) {
+        stage.appendChild(tpl.content.cloneNode(true));
+      }
+      const choice = document.getElementById("choice");
+      const names = {
+        A: "A · Phosphor Ops（磷光运维台）",
+        B: "B · Blueprint（工程蓝图）",
+        C: "C · Ink Terminal（纯黑终端）",
+        D: "D · Brass Catalog（黄铜馆藏）",
+      };
+      document.querySelectorAll(".option").forEach((el) => {
+        el.querySelector(".pick").addEventListener("click", () => {
+          document.querySelectorAll(".option").forEach((o) => o.classList.remove("picked"));
+          el.classList.add("picked");
+          const id = el.dataset.id;
+          choice.classList.add("show");
+          choice.textContent = `已选：${names[id]}。回聊天里回我「${id}」即可落地。`;
+        });
+      });
+    </script>
+  </body>
+</html>
