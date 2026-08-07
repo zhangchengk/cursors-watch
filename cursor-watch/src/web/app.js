@@ -994,7 +994,7 @@ function fillFolderSelect(selectEl, mark, selectedId) {
   if (!selectEl) return;
   const opts = folderSelectOptions(latestLibrary.folders || [], mark);
   selectEl.innerHTML =
-    `<option value="">未归组</option>` +
+    `<option value="">全部</option>` +
     opts.map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.label)}</option>`).join("");
   selectEl.value = selectedId || "";
 }
@@ -1131,7 +1131,7 @@ function renderLibraryPane(mark) {
   const tree = buildFolderTree(folders);
   const selectedName =
     selectedFolder == null
-      ? "未归组"
+      ? "全部"
       : folders.find((f) => f.id === selectedFolder)?.name || "文件夹";
   if (stageHead) {
     stageHead.innerHTML = `<strong>${escapeHtml(selectedName)}</strong>`;
@@ -1166,13 +1166,13 @@ function renderLibraryPane(mark) {
       .join("");
   }
 
-  const unfiledCount = folderChatCount(allEntries, mark, null, folders);
+  const allCount = folderChatCount(allEntries, mark, null, folders);
   treeEl.innerHTML = `
     <div class="library-tree-toolbar">
       <button type="button" class="library-add-root" data-action="add-root" title="新建根文件夹" aria-label="新建根文件夹">+</button>
     </div>
     <div class="library-unfiled-row">
-      <button type="button" class="library-unfiled-btn${selectedFolder == null ? " is-selected" : ""}" data-folder-id=""><span class="library-folder-label">未归组</span><span class="library-folder-count" aria-label="${unfiledCount} 个会话">${unfiledCount}</span></button>
+      <button type="button" class="library-unfiled-btn${selectedFolder == null ? " is-selected" : ""}" data-folder-id=""><span class="library-folder-label">全部</span><span class="library-folder-count" aria-label="${allCount} 个会话">${allCount}</span></button>
     </div>
     ${renderNodes(tree)}
   `;
@@ -1506,7 +1506,7 @@ async function deleteLibraryFolder(mark, folderId) {
 
 async function moveLibraryEntry(entry, mark) {
   const opts = folderSelectOptions(latestLibrary.folders || [], mark);
-  const options = [{ id: "", label: "未归组" }, ...opts];
+  const options = [{ id: "", label: "全部" }, ...opts];
   const picked = await openLibraryPrompt({
     title: "移动到文件夹",
     mode: "select",

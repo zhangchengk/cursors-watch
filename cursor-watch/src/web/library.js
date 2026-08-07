@@ -97,15 +97,16 @@ export function descendantFolderIds(folders, rootId) {
 }
 
 /**
+ * Sidebar / list filter by folder.
  * @param {Array<{ mark: string, folderId: string|null, conversationId: string }>} entries
  * @param {LibraryMark} mark
- * @param {string|null} folderId — null = 未归组 only; non-null = folder + all descendants
+ * @param {string|null} folderId — null/"" = 「全部」(all entries for mark); non-null = folder + descendants
  * @param {Array<{ id: string, parentId: string|null, mark?: string }>|undefined} folders
  */
 export function entriesInFolder(entries, mark, folderId, folders) {
   const list = entries || [];
-  if (folderId == null) {
-    return list.filter((e) => e.mark === mark && (e.folderId == null || e.folderId === ""));
+  if (folderId == null || folderId === "") {
+    return list.filter((e) => e.mark === mark);
   }
   const ids =
     folders && folders.length
@@ -115,7 +116,7 @@ export function entriesInFolder(entries, mark, folderId, folders) {
 }
 
 /**
- * Sidebar badge: Chat entry count for a folder (or 未归组 when folderId is null).
+ * Sidebar badge: Chat entry count for a folder (or 「全部」 when folderId is null).
  * Same range as entriesInFolder — includes subtree; always a number (may be 0).
  *
  * @param {Array<{ mark: string, folderId: string|null, conversationId: string }>} entries
