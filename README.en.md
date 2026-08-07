@@ -45,6 +45,7 @@ npm run package:app:install   # → /Applications/Cursors Watch.app
 - **Reminder**: prefers shell OS notifications; falls back to an in-shell **HUD** if permission is denied or delivery fails.
 - If port `7423` already serves this product’s daemon, the shell **adopts** it and opens the panel; only a foreign process on that port errors out.
 - Update by rebuilding the dmg / `package:app:install`. No one-click hooks installer or auto-update in v1.
+- **Full Disk Access**: on first launch, if not already granted, the shell asks **once** and opens System Settings → Privacy & Security → Full Disk Access (also available from the status-item menu). After that, per-folder Desktop/Documents prompts are usually unnecessary. The install script uses a stable local codesign identity (`~/.cursor-watch/codesign.keychain`) so reinstalls keep TCC grants.
 
 User-facing name is **Cursors Watch**; technical ids stay `cursor-watch` / `com.cursor-watch.*`.
 

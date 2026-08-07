@@ -1877,19 +1877,44 @@ body {
 }
 
 .attachment-preview-dialog {
-  width: min(40rem, calc(100vw - 2rem));
-  max-height: min(82vh, 40rem);
+  width: min(56rem, calc(100vw - 1.5rem));
+  max-width: min(56rem, calc(100vw - 1.5rem));
+  max-height: calc(100vh - 1.5rem);
+  height: calc(100vh - 1.5rem);
+}
+
+.attachment-preview-form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: inherit;
+  box-sizing: border-box;
+}
+
+.attachment-preview-form h3 {
+  flex-shrink: 0;
+}
+
+.attachment-preview-form .library-dialog-hint {
+  flex-shrink: 0;
+}
+
+.attachment-preview-form .library-dialog-actions {
+  flex-shrink: 0;
+  margin-top: 0.75rem;
 }
 
 .attachment-preview-body {
-  max-height: min(58vh, 28rem);
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
-  padding: 0.65rem 0.75rem;
+  padding: 1rem 1.25rem;
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
   background: var(--bg);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .md-preview h1,
@@ -1901,9 +1926,9 @@ body {
   line-height: 1.25;
 }
 
-.md-preview h1 { font-size: 1.35rem; }
-.md-preview h2 { font-size: 1.2rem; }
-.md-preview h3 { font-size: 1.05rem; }
+.md-preview h1 { font-size: 1.55rem; }
+.md-preview h2 { font-size: 1.3rem; }
+.md-preview h3 { font-size: 1.12rem; }
 
 .md-preview p,
 .md-preview ul,
