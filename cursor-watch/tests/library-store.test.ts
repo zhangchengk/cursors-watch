@@ -10,6 +10,8 @@ import {
   loadLibrary,
   patchEntry,
   upsertEntry,
+  addAttachments,
+  removeAttachment,
 } from "../src/library/store.js";
 
 const homes: string[] = [];
@@ -110,5 +112,51 @@ describe("library store", () => {
     upsertEntry(home, { conversationId: "c1", mark: "todo" });
     const e = patchEntry(home, "c1", { folderId: f.id, title: "Hi" });
     expect(e).toMatchObject({ folderId: f.id, title: "Hi", mark: "todo" });
+  });
+});
+
+describe("library attachments", () => {
+  it("addAttachments stores ordered unique absolute md paths", () => {
+    const home = tempHome();
+    const dir = path.join(home, "docs");
+    fs.mkdirSync(dir);
+    const a = path.join(dir, "a.md");
+    const b = path.join(dir, "b.md");
+    fs.writeFileSync(a, "# A\n");
+    fs.writeFileSync(b, "# B\n");
+    upsertEntry(home, { conversationId: "c1", mark: "todo" });
+    const r1 = addAttachments(home, "c1", [a, b, a]);
+    expect(r1.entry.attachments).toEqual([a, b]);
+    expect(r1.rejected).toEqual([]);
+  });
+
+  it("addAttachments rejects missing and non-md", () => {
+    const home = tempHome();
+    const dir = path.join(home, "docs");
+    fs.mkdirSync(dir);
+    const ok = path.join(dir, "ok.md");
+    const txt = path.join(dir, "x.txt");
+    fs.writeFileSync(ok, "x");
+    fs.writeFileSync(txt, "x");
+    upsertEntry(home, { conversationId: "c1", mark: "todo" });
+    const r = addAttachments(home, "c1", [ok, txt, path.join(dir, "missing.md")]);
+    expect(r.entry.attachments).toEqual([ok]);
+    expect(r.rejected.map((x) => x.path).sort()).toEqual(
+      [txt, path.join(dir, "missing.md")].sort(),
+    );
+  });
+
+  it("mark change keeps attachments; deleteEntry drops them", () => {
+    const home = tempHome();
+    const md = path.join(home, "n.md");
+    fs.writeFileSync(md, "n");
+    upsertEntry(home, { conversationId: "c1", mark: "todo" });
+    addAttachments(home, "c1", [md]);
+    upsertEntry(home, { conversationId: "c1", mark: "archive" });
+    expect(loadLibrary(home).entries[0]!.attachments).toEqual([md]);
+    expect(removeAttachment(home, "c1", md)?.attachments ?? []).toEqual([]);
+    addAttachments(home, "c1", [md]);
+    expect(deleteEntry(home, "c1")).toBe(true);
+    expect(loadLibrary(home).entries).toEqual([]);
   });
 });

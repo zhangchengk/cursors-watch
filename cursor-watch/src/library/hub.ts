@@ -8,6 +8,8 @@ import {
   patchEntry,
   patchFolder,
   upsertEntry,
+  addAttachments,
+  removeAttachment,
 } from "./store.js";
 import type {
   CreateFolderInput,
@@ -18,8 +20,15 @@ import type {
   PatchLibraryEntryInput,
   UpsertLibraryEntryInput,
 } from "./types.js";
+import { isReadableMarkdownFile } from "./attachments.js";
+import type { AttachmentReject } from "./attachments.js";
 
-export type LibraryEntryView = LibraryEntry & { stale: boolean };
+export type LibraryAttachmentView = { path: string; available: boolean };
+
+export type LibraryEntryView = LibraryEntry & {
+  stale: boolean;
+  attachmentViews: LibraryAttachmentView[];
+};
 
 export type LibrarySnapshot = {
   folders: LibraryFolder[];
@@ -46,6 +55,10 @@ export class LibraryHub {
       entries: state.entries.map((e) => ({
         ...e,
         stale: isLibraryEntryStale(e, sess),
+        attachmentViews: (e.attachments ?? []).map((p) => ({
+          path: p,
+          available: isReadableMarkdownFile(p),
+        })),
       })),
     };
   }
@@ -70,6 +83,21 @@ export class LibraryHub {
     const ok = deleteEntry(this.homeDir, conversationId);
     if (ok) this.emit();
     return ok;
+  }
+
+  addAttachments(
+    conversationId: string,
+    paths: string[],
+  ): { entry: LibraryEntry; added: string[]; rejected: AttachmentReject[] } {
+    const result = addAttachments(this.homeDir, conversationId, paths);
+    this.emit();
+    return result;
+  }
+
+  removeAttachment(conversationId: string, filePath: string): LibraryEntry | null {
+    const entry = removeAttachment(this.homeDir, conversationId, filePath);
+    if (entry) this.emit();
+    return entry;
   }
 
   createFolder(input: CreateFolderInput): LibraryFolder {

@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
@@ -8,12 +9,27 @@ import websocket from "@fastify/websocket";
 import { BridgeHub } from "./bridge/hub.js";
 import { hooksStatus } from "./hooks-install.js";
 import { LibraryHub } from "./library/hub.js";
+import { isPathAttached, readAttachedMarkdown } from "./library/preview.js";
 import type { LibraryMark } from "./library/types.js";
 import { openChatInCursor } from "./open-chat.js";
 import { openWorkspaceInCursor } from "./open-workspace.js";
-import { loadWatchPrefs, saveWatchPrefs } from "./prefs.js";
+import { loadWatchPrefs, saveWatchPrefs, applyWatchPrefsPatch } from "./prefs.js";
 import { ReminderHub } from "./reminders/hub.js";
 import type { SessionStore } from "./store.js";
+
+function revealInFinder(filePath: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("open", ["-R", filePath], {
+      stdio: "ignore",
+      detached: true,
+    });
+    child.on("error", (err) => {
+      resolve({ ok: false, error: err.message });
+    });
+    child.unref();
+    resolve({ ok: true });
+  });
+}
 
 const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "web");
 
@@ -62,13 +78,14 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
   app.get("/api/hooks-status", async () => hooksStatus(homeDir));
   app.get("/api/bridge-status", async () => bridgeHub.status());
 
-  app.put<{ Body: { notificationSound?: unknown } }>("/api/prefs", async (req, reply) => {
-    if (typeof req.body?.notificationSound !== "boolean") {
-      return reply.code(400).send({ ok: false, error: "notificationSound must be boolean" });
+  app.put<{ Body: Record<string, unknown> }>("/api/prefs", async (req, reply) => {
+    const current = loadWatchPrefs(homeDir);
+    const patched = applyWatchPrefsPatch(current, req.body ?? {});
+    if (!patched.ok) {
+      return reply.code(400).send({ ok: false, error: patched.error });
     }
-    const prefs = { notificationSound: req.body.notificationSound };
-    saveWatchPrefs(homeDir, prefs);
-    return prefs;
+    saveWatchPrefs(homeDir, patched.prefs);
+    return patched.prefs;
   });
 
   app.post<{ Params: { conversationId: string } }>(
@@ -176,6 +193,74 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
       return { ok: true };
     },
   );
+
+  app.post<{
+    Params: { conversationId: string };
+    Body: { paths?: unknown };
+  }>("/api/library/entries/:conversationId/attachments", async (req, reply) => {
+    const paths = Array.isArray(req.body?.paths)
+      ? req.body.paths.filter((p): p is string => typeof p === "string")
+      : [];
+    if (!paths.length) {
+      return reply.code(400).send({ ok: false, error: "paths required" });
+    }
+    try {
+      const result = libraryHub.addAttachments(req.params.conversationId, paths);
+      return {
+        ok: true,
+        entry: result.entry,
+        added: result.added,
+        rejected: result.rejected,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = /not found/i.test(msg) ? 404 : 400;
+      return reply.code(code).send({ ok: false, error: msg });
+    }
+  });
+
+  app.delete<{
+    Params: { conversationId: string };
+    Body: { path?: unknown };
+  }>("/api/library/entries/:conversationId/attachments", async (req, reply) => {
+    const filePath = typeof req.body?.path === "string" ? req.body.path : "";
+    if (!filePath.trim()) {
+      return reply.code(400).send({ ok: false, error: "path required" });
+    }
+    const entry = libraryHub.removeAttachment(req.params.conversationId, filePath);
+    if (!entry) return reply.code(404).send({ ok: false });
+    return { ok: true, entry };
+  });
+
+  app.get<{
+    Params: { conversationId: string };
+    Querystring: { path?: string };
+  }>("/api/library/entries/:conversationId/attachments/preview", async (req, reply) => {
+    const filePath = typeof req.query?.path === "string" ? req.query.path : "";
+    const result = readAttachedMarkdown(homeDir, req.params.conversationId, filePath);
+    if (!result.ok) {
+      return reply.code(result.status).send({ ok: false, error: result.error });
+    }
+    return { ok: true, path: result.path, content: result.content };
+  });
+
+  app.post<{
+    Params: { conversationId: string };
+    Body: { path?: unknown };
+  }>("/api/library/entries/:conversationId/attachments/reveal", async (req, reply) => {
+    const filePath = typeof req.body?.path === "string" ? req.body.path : "";
+    if (!filePath.trim()) {
+      return reply.code(400).send({ ok: false, error: "path required" });
+    }
+    if (!isPathAttached(homeDir, req.params.conversationId, filePath)) {
+      return reply.code(403).send({ ok: false, error: "path is not attached to this entry" });
+    }
+    const revealed = await revealInFinder(path.resolve(filePath.trim()));
+    if (!revealed.ok) {
+      return reply.code(500).send({ ok: false, error: revealed.error });
+    }
+    return { ok: true };
+  });
 
   app.post<{
     Body: { mark?: unknown; parentId?: unknown; name?: unknown; sortKey?: unknown };
@@ -342,7 +427,7 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
       }
     };
 
-    socket.on("message", (raw) => {
+    socket.on("message", (raw: unknown) => {
       let msg: unknown;
       try {
         msg = JSON.parse(String(raw));

@@ -63,7 +63,11 @@ describe("onEffectiveTurnEnd", () => {
 
   it("upserts pending and notifies once when not active loop", () => {
     const home = tempHome();
-    saveWatchPrefs(home, { notificationSound: false });
+    saveWatchPrefs(home, {
+      notificationSound: false,
+      workspaceAliases: {},
+      uiTheme: "phosphor",
+    });
     const notify = vi.fn();
     const result = onEffectiveTurnEnd({
       homeDir: home,
@@ -144,7 +148,11 @@ describe("onEffectiveTurnEnd", () => {
 
   it("uses prefs notificationSound true when notifying", () => {
     const home = tempHome();
-    saveWatchPrefs(home, { notificationSound: true });
+    saveWatchPrefs(home, {
+      notificationSound: true,
+      workspaceAliases: {},
+      uiTheme: "phosphor",
+    });
     const notify = vi.fn();
     onEffectiveTurnEnd({
       homeDir: home,

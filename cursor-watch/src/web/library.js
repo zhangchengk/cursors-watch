@@ -70,17 +70,48 @@ export function buildFolderTree(folders) {
 }
 
 /**
+ * @param {Array<{ id: string, parentId: string|null }>} folders
+ * @param {string} rootId
+ * @returns {Set<string>}
+ */
+export function descendantFolderIds(folders, rootId) {
+  /** @type {Map<string|null, string[]>} */
+  const kids = new Map();
+  for (const f of folders || []) {
+    const p = f.parentId ?? null;
+    if (!kids.has(p)) kids.set(p, []);
+    kids.get(p).push(f.id);
+  }
+  const out = new Set([rootId]);
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop();
+    for (const child of kids.get(id) || []) {
+      if (!out.has(child)) {
+        out.add(child);
+        stack.push(child);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * @param {Array<{ mark: string, folderId: string|null, conversationId: string }>} entries
  * @param {LibraryMark} mark
- * @param {string|null} folderId
+ * @param {string|null} folderId — null = 未归组 only; non-null = folder + all descendants
+ * @param {Array<{ id: string, parentId: string|null, mark?: string }>|undefined} folders
  */
-export function entriesInFolder(entries, mark, folderId) {
-  const fid = folderId ?? null;
-  return (entries || []).filter((e) => {
-    if (e.mark !== mark) return false;
-    const ef = e.folderId ?? null;
-    return ef === fid;
-  });
+export function entriesInFolder(entries, mark, folderId, folders) {
+  const list = entries || [];
+  if (folderId == null) {
+    return list.filter((e) => e.mark === mark && (e.folderId == null || e.folderId === ""));
+  }
+  const ids =
+    folders && folders.length
+      ? descendantFolderIds(folders, folderId)
+      : new Set([folderId]);
+  return list.filter((e) => e.mark === mark && e.folderId && ids.has(e.folderId));
 }
 
 /**

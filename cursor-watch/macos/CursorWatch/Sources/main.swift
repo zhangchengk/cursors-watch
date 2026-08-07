@@ -71,6 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     startShellNotifyWatcher()
     applyDefaultOpenAtLogin()
     refreshDaemonStatusMenu()
+    // After notification auth sheet; only once if FDA is missing.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+      self?.maybePromptFullDiskAccess()
+    }
   }
 
   func applicationWillTerminate(_ notification: Notification) {
@@ -108,6 +112,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     )
     openAtLoginMenuItem.state = isOpenAtLoginEnabled() ? .on : .off
     statusMenu.addItem(openAtLoginMenuItem)
+    statusMenu.addItem(
+      NSMenuItem(
+        title: "完全磁盘访问…",
+        action: #selector(openFullDiskAccessSettings),
+        keyEquivalent: ""
+      )
+    )
     statusMenu.addItem(NSMenuItem.separator())
     statusMenu.addItem(
       NSMenuItem(title: "退出 Cursors Watch", action: #selector(quit), keyEquivalent: "q")
@@ -243,7 +254,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       toggleNativeFullscreen()
     } else if type == "queryFullscreen" {
       pushFullscreenStateToWeb()
+    } else if type == "pickMarkdownFiles" {
+      pickMarkdownFiles()
     }
+  }
+
+  private func pickMarkdownFiles() {
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      let panel = NSOpenPanel()
+      panel.canChooseFiles = true
+      panel.canChooseDirectories = false
+      panel.allowsMultipleSelection = true
+      panel.allowedFileTypes = ["md"]
+      panel.message = "选择要绑定的 Markdown 文件"
+      panel.begin { [weak self] response in
+        guard let self else { return }
+        var paths: [String] = []
+        if response == .OK {
+          paths = panel.urls.map { $0.path }
+        }
+        self.pushPickedMarkdownPaths(paths)
+      }
+    }
+  }
+
+  private func pushPickedMarkdownPaths(_ paths: [String]) {
+    let data = (try? JSONSerialization.data(withJSONObject: paths, options: [])) ?? Data("[]".utf8)
+    let json = String(data: data, encoding: .utf8) ?? "[]"
+    let js = "window.__cwPickedMarkdown && window.__cwPickedMarkdown(\(json))"
+    webView?.evaluateJavaScript(js, completionHandler: nil)
   }
 
   private func toggleNativeFullscreen() {
@@ -690,6 +730,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       UserDefaults.standard.set(true, forKey: key)
     }
     openAtLoginMenuItem.state = isOpenAtLoginEnabled() ? .on : .off
+  }
+
+  /// One-time guide: grant Full Disk Access instead of many folder TCC prompts.
+  private static let didPromptFullDiskAccessKey = "CWDidPromptFullDiskAccess"
+
+  private func maybePromptFullDiskAccess() {
+    let defaults = UserDefaults.standard
+    if defaults.bool(forKey: Self.didPromptFullDiskAccessKey) { return }
+    if hasFullDiskAccess() {
+      defaults.set(true, forKey: Self.didPromptFullDiskAccessKey)
+      return
+    }
+
+    let alert = NSAlert()
+    alert.messageText = "需要完全磁盘访问权限"
+    alert.informativeText =
+      "Cursors Watch 会读取本机 Cursor 会话与工程路径。"
+      + "授权一次「完全磁盘访问」后，一般不必再对桌面、文稿等逐个点允许。"
+      + "\n\n请在系统设置中勾选 Cursors Watch，然后回到本应用即可。"
+    alert.alertStyle = .informational
+    alert.addButton(withTitle: "打开系统设置")
+    alert.addButton(withTitle: "以后再说")
+
+    NSApp.activate(ignoringOtherApps: true)
+    let response = alert.runModal()
+    defaults.set(true, forKey: Self.didPromptFullDiskAccessKey)
+    if response == .alertFirstButtonReturn {
+      openFullDiskAccessSettings()
+    }
+  }
+
+  /// Heuristic: readable FDA-gated files ⇒ Full Disk Access is on.
+  private func hasFullDiskAccess() -> Bool {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let probes: [URL] = [
+      home.appendingPathComponent(
+        "Library/Application Support/com.apple.TCC/TCC.db"
+      ),
+      home.appendingPathComponent("Library/Safari/Bookmarks.plist"),
+      home.appendingPathComponent("Library/Safari/CloudTabs.db"),
+      URL(fileURLWithPath: "/Library/Preferences/com.apple.TimeMachine.plist"),
+    ]
+    for url in probes {
+      do {
+        _ = try Data(contentsOf: url, options: [.mappedIfSafe])
+        return true
+      } catch let err as NSError {
+        if err.domain == NSCocoaErrorDomain,
+           err.code == NSFileReadNoPermissionError
+        {
+          return false
+        }
+        if err.domain == NSPOSIXErrorDomain,
+           err.code == Int(EPERM) || err.code == Int(EACCES)
+        {
+          return false
+        }
+        // Missing file — try next probe.
+        continue
+      } catch {
+        continue
+      }
+    }
+    return false
+  }
+
+  @objc private func openFullDiskAccessSettings() {
+    let candidates = [
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles",
+    ]
+    for s in candidates {
+      if let url = URL(string: s), NSWorkspace.shared.open(url) {
+        return
+      }
+    }
   }
 
   @objc private func toggleOpenAtLogin() {

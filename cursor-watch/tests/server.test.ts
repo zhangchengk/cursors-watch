@@ -179,21 +179,38 @@ describe("buildServer", () => {
     expect(res.json()).toEqual({ ok: false });
   });
 
-  it("GET /api/prefs returns notificationSound", async () => {
-    saveWatchPrefs(home, { notificationSound: true });
+  it("GET /api/prefs returns notificationSound, workspaceAliases, uiTheme", async () => {
+    saveWatchPrefs(home, {
+      notificationSound: true,
+      workspaceAliases: { "/Users/x/p": "P" },
+      uiTheme: "brass",
+    });
     const res = await app.inject({ method: "GET", url: "/api/prefs" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ notificationSound: true });
+    expect(res.json()).toEqual({
+      notificationSound: true,
+      workspaceAliases: { "/Users/x/p": "P" },
+      uiTheme: "brass",
+    });
   });
 
-  it("PUT /api/prefs updates notificationSound", async () => {
+  it("PUT /api/prefs updates notificationSound without wiping aliases or theme", async () => {
+    saveWatchPrefs(home, {
+      notificationSound: false,
+      workspaceAliases: { "/w": "W" },
+      uiTheme: "ink",
+    });
     const res = await app.inject({
       method: "PUT",
       url: "/api/prefs",
       payload: { notificationSound: true },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ notificationSound: true });
+    expect(res.json()).toEqual({
+      notificationSound: true,
+      workspaceAliases: { "/w": "W" },
+      uiTheme: "ink",
+    });
     expect(loadWatchPrefs(home).notificationSound).toBe(true);
 
     const res2 = await app.inject({
@@ -201,7 +218,70 @@ describe("buildServer", () => {
       url: "/api/prefs",
       payload: { notificationSound: false },
     });
-    expect(res2.json()).toEqual({ notificationSound: false });
+    expect(res2.json()).toEqual({
+      notificationSound: false,
+      workspaceAliases: { "/w": "W" },
+      uiTheme: "ink",
+    });
+  });
+
+  it("PUT /api/prefs replaces workspaceAliases map", async () => {
+    saveWatchPrefs(home, {
+      notificationSound: true,
+      workspaceAliases: { "/a": "A" },
+      uiTheme: "phosphor",
+    });
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/prefs",
+      payload: { workspaceAliases: { "/b": "B" } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      notificationSound: true,
+      workspaceAliases: { "/b": "B" },
+      uiTheme: "phosphor",
+    });
+  });
+
+  it("PUT /api/prefs updates uiTheme", async () => {
+    saveWatchPrefs(home, {
+      notificationSound: false,
+      workspaceAliases: {},
+      uiTheme: "phosphor",
+    });
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/prefs",
+      payload: { uiTheme: "blueprint" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      notificationSound: false,
+      workspaceAliases: {},
+      uiTheme: "blueprint",
+    });
+    expect(loadWatchPrefs(home).uiTheme).toBe("blueprint");
+  });
+
+  it("PUT /api/prefs rejects invalid uiTheme", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/prefs",
+      payload: { uiTheme: "neon" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().ok).toBe(false);
+  });
+
+  it("PUT /api/prefs rejects empty alias values", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/prefs",
+      payload: { workspaceAliases: { "/a": "" } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().ok).toBe(false);
   });
 
   it("PUT /api/prefs rejects non-boolean notificationSound", async () => {
@@ -516,6 +596,84 @@ describe("POST /api/open-chat", () => {
         extensionVersion: "0.1.0",
         workspaces: [],
       });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("library attachments API", () => {
+  it("bind / preview gate / unbind", async () => {
+    const home = tempHome();
+    const store = new SessionStore();
+    const libraryHub = new LibraryHub(home);
+    const app = await buildServer(store, { homeDir: home, libraryHub });
+    try {
+      const mdDir = path.join(home, "notes");
+      fs.mkdirSync(mdDir);
+      const md = path.join(mdDir, "spec.md");
+      const foreign = path.join(mdDir, "other.md");
+      fs.writeFileSync(md, "# Hello\n\n- one\n");
+      fs.writeFileSync(foreign, "# Foreign\n");
+
+      await app.inject({
+        method: "POST",
+        url: "/api/library/entries",
+        payload: { conversationId: "att-1", mark: "todo", title: "A" },
+      });
+
+      const bound = await app.inject({
+        method: "POST",
+        url: "/api/library/entries/att-1/attachments",
+        payload: { paths: [md, foreign, md] },
+      });
+      expect(bound.statusCode).toBe(200);
+      const boundBody = bound.json() as {
+        entry: { attachments: string[] };
+        added: string[];
+      };
+      expect(boundBody.entry.attachments).toEqual([md, foreign]);
+
+      const previewOk = await app.inject({
+        method: "GET",
+        url: `/api/library/entries/att-1/attachments/preview?path=${encodeURIComponent(md)}`,
+      });
+      expect(previewOk.statusCode).toBe(200);
+      expect((previewOk.json() as { content: string }).content).toContain("# Hello");
+
+      const previewForeign = await app.inject({
+        method: "GET",
+        url: `/api/library/entries/att-1/attachments/preview?path=${encodeURIComponent(path.join(mdDir, "nope.md"))}`,
+      });
+      expect(previewForeign.statusCode).toBe(403);
+
+      fs.unlinkSync(md);
+      const previewMissing = await app.inject({
+        method: "GET",
+        url: `/api/library/entries/att-1/attachments/preview?path=${encodeURIComponent(md)}`,
+      });
+      expect(previewMissing.statusCode).toBe(404);
+
+      const snap = await app.inject({ method: "GET", url: "/api/library" });
+      const entry = (snap.json() as {
+        entries: Array<{
+          attachmentViews: Array<{ path: string; available: boolean }>;
+        }>;
+      }).entries[0]!;
+      expect(entry.attachmentViews).toEqual([
+        { path: md, available: false },
+        { path: foreign, available: true },
+      ]);
+
+      const removed = await app.inject({
+        method: "DELETE",
+        url: "/api/library/entries/att-1/attachments",
+        payload: { path: foreign },
+      });
+      expect(removed.statusCode).toBe(200);
+      expect((removed.json() as { entry: { attachments?: string[] } }).entry.attachments).toEqual([
+        md,
+      ]);
     } finally {
       await app.close();
     }

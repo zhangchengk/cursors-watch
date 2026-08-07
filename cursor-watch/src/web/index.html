@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="blueprint">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cursors Watch</title>
+    <link rel="stylesheet" href="/themes.css" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -22,6 +23,23 @@
           <input type="checkbox" id="soundToggle" />
           <span>声音</span>
         </label>
+        <button
+          type="button"
+          id="settingsBtn"
+          class="icon-btn icon-btn--gear"
+          title="设置"
+          aria-label="设置"
+          aria-haspopup="dialog"
+          aria-controls="panelSettingsDialog"
+          aria-expanded="false"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path
+              fill="currentColor"
+              d="M6.1 1h3.8l.25 1.55c.4.12.77.3 1.12.54l1.45-.55 1.9 1.9-.55 1.45c.24.35.42.72.54 1.12L16 6.1v3.8l-1.55.25c-.12.4-.3.77-.54 1.12l.55 1.45-1.9 1.9-1.45-.55c-.35.24-.72.42-1.12.54L9.9 15H6.1l-.25-1.55a5.4 5.4 0 0 1-1.12-.54l-1.45.55-1.9-1.9.55-1.45A5.4 5.4 0 0 1 1.55 10L0 9.9V6.1l1.55-.25c.12-.4.3-.77.54-1.12l-.55-1.45 1.9-1.9 1.45.55c.35-.24.72-.42 1.12-.54L6.1 1Zm1.9 4.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6Z"
+            />
+          </svg>
+        </button>
         <button type="button" id="fullscreenBtn" class="icon-btn" aria-pressed="false" title="全屏 (F)">
           全屏
         </button>
@@ -60,10 +78,6 @@
     <div id="todoPane" role="tabpanel" data-pane="todo" hidden>
       <div class="library-layout library-layout--todo" data-mark="todo">
         <aside class="library-rail">
-          <header class="library-rail-head">
-            <span class="library-stamp">Todo</span>
-            <span class="library-stamp-sub">待落地</span>
-          </header>
           <div class="library-tree" id="todoTree"></div>
         </aside>
         <section class="library-stage">
@@ -76,10 +90,6 @@
     <div id="archivePane" role="tabpanel" data-pane="archive" hidden>
       <div class="library-layout library-layout--archive" data-mark="archive">
         <aside class="library-rail">
-          <header class="library-rail-head">
-            <span class="library-stamp">Archive</span>
-            <span class="library-stamp-sub">回看 / 宣讲</span>
-          </header>
           <div class="library-tree" id="archiveTree"></div>
         </aside>
         <section class="library-stage">
@@ -130,7 +140,7 @@
         <p id="libraryPromptHint" class="library-dialog-hint" hidden></p>
         <label id="libraryPromptTextLabel">
           <span id="libraryPromptTextCaption">名称</span>
-          <input id="libraryPromptText" type="text" maxlength="80" autocomplete="off" />
+          <input id="libraryPromptText" type="text" maxlength="512" autocomplete="off" />
         </label>
         <label id="libraryPromptSelectLabel" hidden>
           <span id="libraryPromptSelectCaption">文件夹</span>
@@ -139,6 +149,75 @@
         <div class="library-dialog-actions">
           <button type="button" id="libraryPromptCancel">取消</button>
           <button type="submit" id="libraryPromptOk">确定</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="attachmentPreviewDialog" class="library-dialog attachment-preview-dialog">
+      <form method="dialog" class="library-dialog-form attachment-preview-form">
+        <h3 id="attachmentPreviewTitle">预览</h3>
+        <p id="attachmentPreviewPath" class="library-dialog-hint"></p>
+        <div id="attachmentPreviewBody" class="attachment-preview-body md-preview"></div>
+        <div class="library-dialog-actions">
+          <button type="submit" value="close">关闭</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="panelSettingsDialog" class="library-dialog settings-dialog">
+      <form id="panelSettingsForm" class="library-dialog-form settings-form">
+        <h3>设置</h3>
+        <section class="settings-section" aria-labelledby="settingsThemeHeading">
+          <h4 id="settingsThemeHeading">外观</h4>
+          <p class="library-dialog-hint">选一套仪表盘气质；点选即预览，保存后写入本机。</p>
+          <div class="settings-theme-grid" id="settingsThemeGrid" role="radiogroup" aria-label="界面风格">
+            <label class="settings-theme-card">
+              <input type="radio" name="uiTheme" value="blueprint" />
+              <span class="settings-theme-swatch" data-swatch="blueprint" aria-hidden="true"></span>
+              <span class="settings-theme-copy">
+                <strong>Blueprint</strong>
+                <em>工程蓝图 · 默认</em>
+              </span>
+            </label>
+            <label class="settings-theme-card">
+              <input type="radio" name="uiTheme" value="phosphor" />
+              <span class="settings-theme-swatch" data-swatch="phosphor" aria-hidden="true"></span>
+              <span class="settings-theme-copy">
+                <strong>Phosphor Ops</strong>
+                <em>磷光运维台</em>
+              </span>
+            </label>
+            <label class="settings-theme-card">
+              <input type="radio" name="uiTheme" value="ink" />
+              <span class="settings-theme-swatch" data-swatch="ink" aria-hidden="true"></span>
+              <span class="settings-theme-copy">
+                <strong>Ink Terminal</strong>
+                <em>纯黑终端</em>
+              </span>
+            </label>
+            <label class="settings-theme-card">
+              <input type="radio" name="uiTheme" value="brass" />
+              <span class="settings-theme-swatch" data-swatch="brass" aria-hidden="true"></span>
+              <span class="settings-theme-copy">
+                <strong>Brass Catalog</strong>
+                <em>黄铜馆藏</em>
+              </span>
+            </label>
+          </div>
+        </section>
+        <section class="settings-section" aria-labelledby="settingsAliasHeading">
+          <h4 id="settingsAliasHeading">工作区别名</h4>
+          <p class="library-dialog-hint">
+            给已知工程起短名；悬停卡片仍可看全路径。去掉别名请点删除。
+          </p>
+          <div id="settingsAliasList" class="settings-alias-list"></div>
+          <p id="settingsAliasEmpty" class="settings-alias-empty" hidden>
+            还没有已知工程。打开 Cursor 会话或在 Reminder 里标注后，路径会出现在这里。
+          </p>
+        </section>
+        <div class="library-dialog-actions">
+          <button type="button" id="settingsCancel">取消</button>
+          <button type="submit" id="settingsSave">保存</button>
         </div>
       </form>
     </dialog>

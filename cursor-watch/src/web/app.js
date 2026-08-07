@@ -33,6 +33,14 @@ import {
   loadLibraryTab,
   saveLibraryTab,
 } from "./library.js";
+import { displayWorkspacePlace, collectKnownWorkspacePaths } from "./workspace-display.js";
+import { renderMarkdown } from "./markdown.js";
+
+function pathBasename(filePath) {
+  const s = String(filePath || "").replace(/\\/g, "/");
+  const parts = s.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : s;
+}
 
 const listEl = document.getElementById("list");
 const countsEl = document.getElementById("counts");
@@ -50,6 +58,13 @@ let latestLibrary = { folders: [], entries: [] };
 let hooksInstalled = true;
 let selectedConversationId = null;
 let notificationSound = false;
+/** @type {Record<string, string>} */
+let workspaceAliases = {};
+/** @type {"phosphor"|"blueprint"|"ink"|"brass"} */
+let uiTheme = "blueprint";
+const UI_THEMES = ["phosphor", "blueprint", "ink", "brass"];
+/** Theme shown while settings dialog is open (restore on cancel). */
+let settingsThemeBaseline = null;
 let resizeTimer = null;
 let deepLinkHandled = false;
 let ackAllInFlight = false;
@@ -67,10 +82,22 @@ function showToast(message) {
   if (!toastEl) return;
   toastEl.textContent = message;
   toastEl.hidden = false;
+  requestAnimationFrame(() => {
+    toastEl.dataset.open = "true";
+  });
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
-    toastEl.hidden = true;
-  }, 2800);
+    toastEl.dataset.open = "false";
+    toastTimer = setTimeout(() => {
+      toastEl.hidden = true;
+    }, 200);
+  }, 2200);
+}
+
+function workspacePathLeaf(absPath) {
+  const p = String(absPath || "").replace(/\/+$/, "");
+  const i = p.lastIndexOf("/");
+  return i >= 0 ? p.slice(i + 1) || p : p;
 }
 
 async function openInCursor(session) {
@@ -172,9 +199,19 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
   const liveBit = s.live
     ? `<span class="live-inline">LIVE</span> ${escapeHtml(s.liveHint || lines.subtitle)}`
     : escapeHtml(lines.subtitle);
+  const place = displayWorkspacePlace(
+    lines.workspacePath,
+    lines.workspaceLabel,
+    workspaceAliases,
+  );
+  const aliased = Boolean(
+    lines.workspacePath &&
+      workspaceAliases[lines.workspacePath] &&
+      String(workspaceAliases[lines.workspacePath]).trim(),
+  );
   const dir =
-    showPathBar && lines.workspaceDir
-      ? `<div class="workspace-path" title="${escapeHtml(lines.workspacePath || lines.workspaceDir)}">${escapeHtml(lines.workspaceDir)}</div>`
+    showPathBar && place.text && place.text !== "—"
+      ? `<div class="workspace-path${aliased ? " is-aliased" : ""}" title="${escapeHtml(place.titlePath || place.text)}">${escapeHtml(place.text)}</div>`
       : "";
   const ackRow = onAck
     ? `<div class="card-actions"><button type="button" class="inbox-ack">确认</button>${markBtn}</div>`
@@ -265,7 +302,18 @@ function render(sessions) {
   latestSessions = sessions || [];
   const counts = { waiting: 0, running: 0, subagent: 0, idle: 0, error: 0 };
   for (const s of latestSessions) counts[s.status] = (counts[s.status] ?? 0) + 1;
-  countsEl.textContent = `🟢${counts.running} 🟡${counts.waiting} 🔵${counts.subagent} ⚪${counts.idle} 🔴${counts.error}`;
+  countsEl.innerHTML = [
+    ["running", counts.running, "运行中"],
+    ["waiting", counts.waiting, "等待"],
+    ["subagent", counts.subagent, "子任务"],
+    ["idle", counts.idle, "空闲"],
+    ["error", counts.error, "错误"],
+  ]
+    .map(([key, n, label]) => {
+      const hot = Number(n) > 0 ? " is-hot" : "";
+      return `<span class="count-led ${key}${hot}" title="${label}"><i></i>${n}</span>`;
+    })
+    .join("");
 
   listEl.innerHTML = "";
   renderRunning(latestSessions);
@@ -456,6 +504,215 @@ function bindSoundToggle() {
   });
 }
 
+/** @type {Set<string>} */
+let settingsDeletedPaths = new Set();
+
+function normalizeUiTheme(raw) {
+  return UI_THEMES.includes(raw) ? raw : "blueprint";
+}
+
+function applyUiTheme(theme) {
+  const next = normalizeUiTheme(theme);
+  document.documentElement.dataset.theme = next;
+  return next;
+}
+
+function readSettingsThemeChoice() {
+  const checked = document.querySelector(
+    '#settingsThemeGrid input[name="uiTheme"]:checked',
+  );
+  return normalizeUiTheme(checked?.value || uiTheme);
+}
+
+function syncSettingsThemeRadios(theme) {
+  const t = normalizeUiTheme(theme);
+  for (const input of document.querySelectorAll(
+    '#settingsThemeGrid input[name="uiTheme"]',
+  )) {
+    input.checked = input.value === t;
+  }
+}
+
+function bindPanelSettings() {
+  const btn = document.getElementById("settingsBtn");
+  const dialog = document.getElementById("panelSettingsDialog");
+  const form = document.getElementById("panelSettingsForm");
+  const cancel = document.getElementById("settingsCancel");
+  const themeGrid = document.getElementById("settingsThemeGrid");
+  if (!btn || !dialog || !form) return;
+
+  const syncExpanded = () => {
+    btn.setAttribute("aria-expanded", dialog.open ? "true" : "false");
+  };
+  dialog.addEventListener("close", () => {
+    if (settingsThemeBaseline != null) {
+      applyUiTheme(settingsThemeBaseline);
+      settingsThemeBaseline = null;
+    }
+    syncExpanded();
+  });
+  btn.addEventListener("click", () => {
+    openPanelSettings();
+  });
+  cancel?.addEventListener("click", () => {
+    dialog.close();
+  });
+  themeGrid?.addEventListener("change", (ev) => {
+    const t = ev.target;
+    if (t instanceof HTMLInputElement && t.name === "uiTheme" && t.checked) {
+      applyUiTheme(t.value);
+    }
+  });
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    void savePanelSettings();
+  });
+}
+
+function openPanelSettings() {
+  const dialog = document.getElementById("panelSettingsDialog");
+  const listEl = document.getElementById("settingsAliasList");
+  const emptyEl = document.getElementById("settingsAliasEmpty");
+  const btn = document.getElementById("settingsBtn");
+  if (!dialog || !listEl) return;
+
+  settingsDeletedPaths = new Set();
+  settingsThemeBaseline = uiTheme;
+  syncSettingsThemeRadios(uiTheme);
+  applyUiTheme(uiTheme);
+
+  const paths = collectKnownWorkspacePaths({
+    sessions: latestSessions,
+    reminders: latestReminders,
+    libraryEntries: latestLibrary.entries || [],
+    aliases: workspaceAliases,
+  });
+
+  listEl.innerHTML = "";
+  if (emptyEl) emptyEl.hidden = paths.length > 0;
+
+  /** @type {HTMLInputElement|null} */
+  let focusInput = null;
+
+  for (const pathKey of paths) {
+    const row = document.createElement("div");
+    row.className = "settings-alias-row";
+    row.dataset.path = pathKey;
+    const hasAlias = Boolean(workspaceAliases[pathKey]);
+    const leaf = workspacePathLeaf(pathKey);
+    const nick = workspaceAliases[pathKey] || "";
+    row.innerHTML = `
+      <div class="settings-alias-id">
+        <span class="settings-alias-name" title="${escapeHtml(pathKey)}">${escapeHtml(leaf)}</span>
+        <code class="settings-alias-path" title="${escapeHtml(pathKey)}">${escapeHtml(pathKey)}</code>
+      </div>
+      <div class="settings-alias-edit">
+        <input type="text" maxlength="80" autocomplete="off" aria-label="${escapeHtml(leaf)} 的别名"
+          value="${escapeHtml(nick)}"
+          placeholder="起个短名" />
+        <button type="button" class="settings-alias-delete" ${hasAlias ? "" : "disabled"}>删除</button>
+      </div>
+    `;
+    const input = row.querySelector("input");
+    const del = row.querySelector(".settings-alias-delete");
+    const syncDeleteAfford = () => {
+      const pending = settingsDeletedPaths.has(pathKey);
+      row.classList.toggle("is-pending-delete", pending);
+      if (del) {
+        del.disabled = pending ? true : !(input?.value.trim() || workspaceAliases[pathKey]);
+      }
+    };
+    input?.addEventListener("input", () => {
+      settingsDeletedPaths.delete(pathKey);
+      syncDeleteAfford();
+    });
+    del?.addEventListener("click", () => {
+      settingsDeletedPaths.add(pathKey);
+      if (input) {
+        input.value = "";
+        input.placeholder = "保存后恢复全路径";
+      }
+      syncDeleteAfford();
+    });
+    if (!focusInput && !nick) focusInput = input;
+    listEl.appendChild(row);
+  }
+
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  btn?.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => {
+    (focusInput || listEl.querySelector("input"))?.focus();
+  });
+}
+
+async function savePanelSettings() {
+  const dialog = document.getElementById("panelSettingsDialog");
+  const listEl = document.getElementById("settingsAliasList");
+  const saveBtn = document.getElementById("settingsSave");
+  if (!listEl) return;
+
+  /** @type {Record<string, string>} */
+  const next = {};
+  for (const row of listEl.querySelectorAll(".settings-alias-row")) {
+    const pathKey = row.getAttribute("data-path") || "";
+    if (!pathKey) continue;
+    if (settingsDeletedPaths.has(pathKey)) continue;
+    const input = row.querySelector("input");
+    const nick = (input?.value || "").trim();
+    if (nick) {
+      next[pathKey] = nick;
+      continue;
+    }
+    if (workspaceAliases[pathKey]) {
+      showToast("昵称不能为空；要去掉请点删除");
+      row.classList.remove("is-pending-delete");
+      input?.focus();
+      return;
+    }
+  }
+
+  const nextTheme = readSettingsThemeChoice();
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "保存中…";
+  }
+  try {
+    const res = await fetch("/api/prefs", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceAliases: next, uiTheme: nextTheme }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || `保存失败 (${res.status})`);
+      return;
+    }
+    workspaceAliases =
+      data.workspaceAliases && typeof data.workspaceAliases === "object"
+        ? data.workspaceAliases
+        : next;
+    uiTheme = normalizeUiTheme(data.uiTheme ?? nextTheme);
+    applyUiTheme(uiTheme);
+    settingsThemeBaseline = null;
+    if (typeof data.notificationSound === "boolean") {
+      notificationSound = data.notificationSound;
+      syncSoundToggle();
+    }
+    refreshWorkspaceDisplays();
+    showToast("设置已保存");
+    dialog?.close();
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "保存失败");
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "保存";
+    }
+  }
+}
+
 async function putNotificationSound(enabled) {
   try {
     const res = await fetch("/api/prefs", {
@@ -470,6 +727,13 @@ async function putNotificationSound(enabled) {
       return;
     }
     notificationSound = Boolean(data.notificationSound);
+    if (data.workspaceAliases && typeof data.workspaceAliases === "object") {
+      workspaceAliases = data.workspaceAliases;
+    }
+    if (data.uiTheme != null) {
+      uiTheme = normalizeUiTheme(data.uiTheme);
+      applyUiTheme(uiTheme);
+    }
     syncSoundToggle();
   } catch (err) {
     showToast(err instanceof Error ? err.message : "保存失败");
@@ -521,13 +785,14 @@ function openDrawer(s) {
     ? `<button type="button" class="drawer-open-cursor" id="drawerOpenCursor">在 Cursor 中打开对应 Chat</button>`
     : "";
 
+  const place = displayWorkspacePlace(s.workspacePath, s.workspaceLabel, workspaceAliases);
   drawerEl.innerHTML = `
     <header>
       <strong>${escapeHtml(title)}</strong>
       <button type="button" id="closeDrawer">关闭</button>
     </header>
     <p class="drawer-status">${escapeHtml(statusLine)}</p>
-    <p class="drawer-meta"><span class="label">工程</span> ${escapeHtml(s.workspaceLabel || "—")}</p>
+    <p class="drawer-meta"><span class="label">工程</span> <span title="${escapeHtml(place.titlePath)}">${escapeHtml(place.text)}</span></p>
     ${action ? `<p class="drawer-meta"><span class="label">当前</span> ${escapeHtml(action)}</p>` : ""}
     ${
       subN > 0
@@ -677,10 +942,27 @@ async function fetchDaemonPrefs() {
     const res = await fetch("/api/prefs");
     const data = await res.json();
     notificationSound = Boolean(data.notificationSound);
+    workspaceAliases =
+      data.workspaceAliases && typeof data.workspaceAliases === "object"
+        ? data.workspaceAliases
+        : {};
+    uiTheme = normalizeUiTheme(data.uiTheme);
   } catch {
     notificationSound = false;
+    workspaceAliases = {};
+    uiTheme = "blueprint";
   }
+  applyUiTheme(uiTheme);
   syncSoundToggle();
+  refreshWorkspaceDisplays();
+}
+
+function refreshWorkspaceDisplays() {
+  renderInbox(latestReminders);
+  render(latestSessions);
+  if (activeTab === "todo" || activeTab === "archive") {
+    renderLibraryPane(activeTab);
+  }
 }
 
 function setActiveTab(tab) {
@@ -797,6 +1079,45 @@ async function submitMarkDialog() {
   }
 }
 
+function closeLibraryFolderMenus(except) {
+  for (const el of document.querySelectorAll(".library-folder-more.is-open")) {
+    if (except && el === except) continue;
+    el.classList.remove("is-open");
+    const menu = el.querySelector(".library-folder-menu");
+    if (menu) menu.hidden = true;
+  }
+}
+
+function bindLibraryFolderMenu(moreWrap, mark, folder) {
+  const btn = moreWrap.querySelector(".library-folder-more-btn");
+  const menu = moreWrap.querySelector(".library-folder-menu");
+  if (!btn || !menu) return;
+  btn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const open = moreWrap.classList.contains("is-open");
+    closeLibraryFolderMenus();
+    if (!open) {
+      moreWrap.classList.add("is-open");
+      menu.hidden = false;
+    }
+  });
+  menu.querySelector('[data-folder-act="add-child"]')?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    closeLibraryFolderMenus();
+    void createLibraryFolder(mark, folder.id);
+  });
+  menu.querySelector('[data-folder-act="rename"]')?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    closeLibraryFolderMenus();
+    void renameLibraryFolder(mark, folder.id);
+  });
+  menu.querySelector('[data-folder-act="delete"]')?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    closeLibraryFolderMenus();
+    void deleteLibraryFolder(mark, folder.id);
+  });
+}
+
 function renderLibraryPane(mark) {
   const treeEl = document.getElementById(mark === "todo" ? "todoTree" : "archiveTree");
   const listElLib = document.getElementById(mark === "todo" ? "todoList" : "archiveList");
@@ -811,9 +1132,7 @@ function renderLibraryPane(mark) {
       ? "未归组"
       : folders.find((f) => f.id === selectedFolder)?.name || "文件夹";
   if (stageHead) {
-    stageHead.innerHTML = `<strong>${escapeHtml(selectedName)}</strong> · ${
-      mark === "todo" ? "代办" : "归档"
-    }`;
+    stageHead.innerHTML = `<strong>${escapeHtml(selectedName)}</strong>`;
   }
 
   function renderNodes(nodes) {
@@ -821,7 +1140,23 @@ function renderLibraryPane(mark) {
       .map((n) => {
         const sel = selectedFolder === n.folder.id ? " is-selected" : "";
         return `<div class="library-folder-node">
-          <button type="button" class="library-folder-btn${sel}" data-folder-id="${escapeHtml(n.folder.id)}">${escapeHtml(n.folder.name)}</button>
+          <div class="library-folder-row">
+            <button type="button" class="library-folder-btn${sel}" data-folder-id="${escapeHtml(n.folder.id)}">${escapeHtml(n.folder.name)}</button>
+            <div class="library-folder-more" data-folder-id="${escapeHtml(n.folder.id)}">
+              <button type="button" class="library-folder-more-btn" aria-label="文件夹操作" title="文件夹操作">
+                <svg class="library-folder-more-glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <circle cx="8" cy="3.5" r="1.35"/>
+                  <circle cx="8" cy="8" r="1.35"/>
+                  <circle cx="8" cy="12.5" r="1.35"/>
+                </svg>
+              </button>
+              <div class="library-folder-menu" hidden>
+                <button type="button" data-folder-act="add-child">新建子文件夹</button>
+                <button type="button" data-folder-act="rename">重命名</button>
+                <button type="button" data-folder-act="delete" class="is-danger">删除</button>
+              </div>
+            </div>
+          </div>
           <div class="library-folder-children">${renderNodes(n.children)}</div>
         </div>`;
       })
@@ -829,36 +1164,42 @@ function renderLibraryPane(mark) {
   }
 
   treeEl.innerHTML = `
-    <div class="library-tree-actions">
-      <button type="button" data-action="new-folder">新建</button>
-      <button type="button" data-action="rename-folder">重命名</button>
-      <button type="button" data-action="delete-folder">删除</button>
+    <div class="library-tree-toolbar">
+      <button type="button" class="library-add-root" data-action="add-root" title="新建根文件夹" aria-label="新建根文件夹">+</button>
     </div>
-    <button type="button" class="library-unfiled-btn${selectedFolder == null ? " is-selected" : ""}" data-folder-id="">未归组</button>
+    <div class="library-unfiled-row">
+      <button type="button" class="library-unfiled-btn${selectedFolder == null ? " is-selected" : ""}" data-folder-id="">未归组</button>
+    </div>
     ${renderNodes(tree)}
   `;
 
-  treeEl.querySelectorAll("[data-folder-id]").forEach((btn) => {
+  treeEl.querySelector('[data-action="add-root"]')?.addEventListener("click", () => {
+    void createLibraryFolder(mark, null);
+  });
+
+  treeEl.querySelectorAll(".library-folder-btn, .library-unfiled-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-folder-id");
       libraryFolderFilter[mark] = id ? id : null;
+      closeLibraryFolderMenus();
       renderLibraryPane(mark);
     });
   });
 
-  treeEl.querySelector('[data-action="new-folder"]')?.addEventListener("click", () => {
-    void createLibraryFolder(mark);
-  });
-  treeEl.querySelector('[data-action="rename-folder"]')?.addEventListener("click", () => {
-    void renameLibraryFolder(mark);
-  });
-  treeEl.querySelector('[data-action="delete-folder"]')?.addEventListener("click", () => {
-    void deleteLibraryFolder(mark);
+  treeEl.querySelectorAll(".library-folder-more").forEach((wrap) => {
+    const id = wrap.getAttribute("data-folder-id");
+    const folder = folders.find((f) => f.id === id);
+    if (folder) bindLibraryFolderMenu(wrap, mark, folder);
   });
 
-  const entries = entriesInFolder(latestLibrary.entries || [], mark, selectedFolder);
+  const entries = entriesInFolder(
+    latestLibrary.entries || [],
+    mark,
+    selectedFolder,
+    folders,
+  );
   if (!entries.length) {
-    listElLib.innerHTML = `<div class="library-empty"><strong>这里还没有条目</strong>在 Reminder 列表点「馆藏」标注；可用左侧新建文件夹归组。</div>`;
+    listElLib.innerHTML = `<div class="library-empty"><strong>这里还没有条目</strong>在 Reminder 列表点「馆藏」标注；点左上角 + 建根文件夹，悬停目录右侧三点可建子文件夹。</div>`;
     return;
   }
 
@@ -867,12 +1208,53 @@ function renderLibraryPane(mark) {
     const card = document.createElement("article");
     card.className = `library-entry${entry.stale ? " is-stale" : ""}`;
     const title = entryDisplayTitle(entry);
+    const placeInfo = displayWorkspacePlace(
+      entry.workspacePath,
+      entry.workspaceLabel,
+      workspaceAliases,
+    );
+    const entryFolder =
+      entry.folderId && entry.folderId !== selectedFolder
+        ? folders.find((f) => f.id === entry.folderId)
+        : null;
+    const folderHint = entryFolder ? ` · ${entryFolder.name}` : "";
+    const place = `${placeInfo.text}${folderHint}`;
+    const attachmentViews = Array.isArray(entry.attachmentViews)
+      ? entry.attachmentViews
+      : (entry.attachments || []).map((p) => ({ path: p, available: true }));
+    const attachmentsHtml = `
+      <div class="library-attachments">
+        <div class="library-attachments-head">
+          <span>附件 MD</span>
+          <button type="button" data-act="attach-add">+ 绑定</button>
+        </div>
+        ${
+          attachmentViews.length
+            ? `<ul class="library-attachment-list">${attachmentViews
+                .map(
+                  (a) => `
+              <li class="library-attachment-row${a.available ? "" : " is-unavailable"}" data-path="${escapeHtml(a.path)}" title="${escapeHtml(a.path)}">
+                <span class="library-attachment-name">${escapeHtml(pathBasename(a.path))}${
+                    a.available ? "" : `<em class="library-attachment-stale">不可用</em>`
+                  }</span>
+                <span class="library-attachment-actions">
+                  <button type="button" data-act="attach-preview">预览</button>
+                  <button type="button" data-act="attach-reveal">Finder</button>
+                  <button type="button" data-act="attach-remove">解绑</button>
+                </span>
+              </li>`,
+                )
+                .join("")}</ul>`
+            : `<p class="library-attachments-empty">尚未绑定本地 .md</p>`
+        }
+      </div>`;
     card.innerHTML = `
       <div class="library-entry-title">${escapeHtml(title)}${
         entry.stale ? `<span class="library-stale-badge">源会话不可用</span>` : ""
       }</div>
-      <div class="library-entry-meta">${escapeHtml(entry.workspaceLabel || entry.workspacePath || "")}</div>
+      <div class="library-entry-meta" title="${escapeHtml(placeInfo.titlePath)}">${escapeHtml(place.trim() || "—")}</div>
       ${entry.note ? `<div class="library-entry-note">${escapeHtml(entry.note)}</div>` : ""}
+      ${attachmentsHtml}
       <div class="library-entry-actions">
         <button type="button" data-act="edit">编辑</button>
         <button type="button" data-act="move">移动</button>
@@ -909,6 +1291,21 @@ function renderLibraryPane(mark) {
         workspacePath: entry.workspacePath,
       });
     });
+    card.querySelector('[data-act="attach-add"]')?.addEventListener("click", () => {
+      void addLibraryAttachments(entry.conversationId);
+    });
+    for (const row of card.querySelectorAll(".library-attachment-row")) {
+      const filePath = row.getAttribute("data-path") || "";
+      row.querySelector('[data-act="attach-preview"]')?.addEventListener("click", () => {
+        void openAttachmentPreview(entry.conversationId, filePath);
+      });
+      row.querySelector('[data-act="attach-reveal"]')?.addEventListener("click", () => {
+        void revealLibraryAttachment(entry.conversationId, filePath);
+      });
+      row.querySelector('[data-act="attach-remove"]')?.addEventListener("click", () => {
+        void removeLibraryAttachment(entry.conversationId, filePath);
+      });
+    }
     listElLib.appendChild(card);
   }
 }
@@ -1019,12 +1416,11 @@ function openLibraryPrompt(opts) {
   });
 }
 
-async function createLibraryFolder(mark) {
-  const parentId = libraryFolderFilter[mark];
+async function createLibraryFolder(mark, parentId = null) {
   const name = await openLibraryPrompt({
-    title: "新建文件夹",
+    title: parentId ? "新建子文件夹" : "新建根文件夹",
     label: "名称",
-    hint: parentId ? "将创建在当前选中文件夹下" : "将创建在根级",
+    hint: parentId ? "创建在当前目录下" : "创建在根级",
     defaultValue: "",
     okLabel: "创建",
   });
@@ -1046,8 +1442,8 @@ async function createLibraryFolder(mark) {
   }
 }
 
-async function renameLibraryFolder(mark) {
-  const id = libraryFolderFilter[mark];
+async function renameLibraryFolder(mark, folderId) {
+  const id = folderId || libraryFolderFilter[mark];
   if (!id) {
     showToast("请先选中文件夹");
     return;
@@ -1074,8 +1470,8 @@ async function renameLibraryFolder(mark) {
   }
 }
 
-async function deleteLibraryFolder(mark) {
-  const id = libraryFolderFilter[mark];
+async function deleteLibraryFolder(mark, folderId) {
+  const id = folderId || libraryFolderFilter[mark];
   if (!id) {
     showToast("请先选中文件夹");
     return;
@@ -1097,7 +1493,7 @@ async function deleteLibraryFolder(mark) {
       showToast(data.error || "删除失败");
       return;
     }
-    libraryFolderFilter[mark] = null;
+    if (libraryFolderFilter[mark] === id) libraryFolderFilter[mark] = null;
     showToast("已删除文件夹");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "删除失败");
@@ -1135,11 +1531,143 @@ async function patchLibraryEntry(conversationId, patch) {
   }
 }
 
+/**
+ * @returns {Promise<string[]>}
+ */
+function pickMarkdownPaths() {
+  if (hasNativeShell()) {
+    return new Promise((resolve) => {
+      const prev = window.__cwPickedMarkdown;
+      window.__cwPickedMarkdown = (paths) => {
+        window.__cwPickedMarkdown = prev;
+        resolve(Array.isArray(paths) ? paths.filter((p) => typeof p === "string") : []);
+      };
+      try {
+        window.webkit.messageHandlers.cursorWatch.postMessage({
+          type: "pickMarkdownFiles",
+        });
+      } catch (err) {
+        window.__cwPickedMarkdown = prev;
+        console.error("[cursor-watch] pickMarkdownFiles failed", err);
+        resolve([]);
+      }
+    });
+  }
+  return openLibraryPrompt({
+    title: "绑定 Markdown",
+    hint: "粘贴本机绝对路径，多个路径用换行分隔（App 内请用系统选文件）。",
+    label: "路径",
+    defaultValue: "",
+    okLabel: "绑定",
+  }).then((raw) => {
+    if (!raw) return [];
+    return String(raw)
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  });
+}
+
+async function addLibraryAttachments(conversationId) {
+  const paths = await pickMarkdownPaths();
+  if (!paths.length) return;
+  try {
+    const res = await fetch(
+      `/api/library/entries/${encodeURIComponent(conversationId)}/attachments`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ paths }),
+      },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || "绑定失败");
+      return;
+    }
+    const rejected = Array.isArray(data.rejected) ? data.rejected : [];
+    const added = Array.isArray(data.added) ? data.added : [];
+    if (rejected.length && !added.length) {
+      showToast(rejected[0]?.reason || "未能绑定");
+    } else if (rejected.length) {
+      showToast(`已绑定 ${added.length} 个；${rejected.length} 个被拒绝`);
+    } else if (added.length) {
+      showToast(`已绑定 ${added.length} 个附件`);
+    } else {
+      showToast("已在列表中");
+    }
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "绑定失败");
+  }
+}
+
+async function removeLibraryAttachment(conversationId, filePath) {
+  try {
+    const res = await fetch(
+      `/api/library/entries/${encodeURIComponent(conversationId)}/attachments`,
+      {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: filePath }),
+      },
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || "解绑失败");
+    }
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "解绑失败");
+  }
+}
+
+async function revealLibraryAttachment(conversationId, filePath) {
+  try {
+    const res = await fetch(
+      `/api/library/entries/${encodeURIComponent(conversationId)}/attachments/reveal`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: filePath }),
+      },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) showToast(data.error || "无法在 Finder 中显示");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "无法在 Finder 中显示");
+  }
+}
+
+async function openAttachmentPreview(conversationId, filePath) {
+  const dialog = document.getElementById("attachmentPreviewDialog");
+  const titleEl = document.getElementById("attachmentPreviewTitle");
+  const pathEl = document.getElementById("attachmentPreviewPath");
+  const bodyEl = document.getElementById("attachmentPreviewBody");
+  if (!dialog || !bodyEl) return;
+  if (titleEl) titleEl.textContent = pathBasename(filePath) || "预览";
+  if (pathEl) pathEl.textContent = filePath;
+  bodyEl.innerHTML = `<p class="attachment-preview-loading">加载中…</p>`;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  try {
+    const res = await fetch(
+      `/api/library/entries/${encodeURIComponent(conversationId)}/attachments/preview?path=${encodeURIComponent(filePath)}`,
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      bodyEl.innerHTML = `<p class="attachment-preview-error">${escapeHtml(data.error || "无法读取附件")}</p>`;
+      return;
+    }
+    bodyEl.innerHTML = renderMarkdown(data.content || "");
+  } catch (err) {
+    bodyEl.innerHTML = `<p class="attachment-preview-error">${escapeHtml(err instanceof Error ? err.message : String(err))}</p>`;
+  }
+}
+
 async function unmarkLibraryEntry(conversationId) {
   const ok = await openLibraryPrompt({
     title: "取消标注",
     mode: "confirm",
-    hint: "取消后标题与备注会丢弃，条目从 Todo / Archive 中移除。",
+    hint: "取消后标题、备注与附件会丢弃，条目从 Todo / Archive 中移除。",
     okLabel: "取消标注",
   });
   if (!ok) return;
@@ -1216,8 +1744,12 @@ async function boot() {
   bindFullscreen();
   bindViewControls();
   bindSoundToggle();
+  bindPanelSettings();
   bindTabs();
   bindMarkDialog();
+  document.addEventListener("click", (ev) => {
+    if (!ev.target.closest(".library-folder-more")) closeLibraryFolderMenus();
+  });
   syncChrome();
   setActiveTab(loadLibraryTab());
   await Promise.all([

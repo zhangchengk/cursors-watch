@@ -1,0 +1,144 @@
+/**
+ * UI themes for Cursors Watch (settings switcher).
+ * Set on <html data-theme="…">.
+ */
+
+:root,
+html[data-theme="phosphor"] {
+  --bg: #0c0d0b;
+  --bg-elevated: #141510;
+  --bg-card: #181a14;
+  --border: #2c2f24;
+  --text: #e8e6d8;
+  --text-muted: #8f917f;
+  --waiting: #c9a227;
+  --running: #7aa85a;
+  --subagent: #6a8f9e;
+  --idle: #6e7264;
+  --error: #c45c4a;
+  --signal: #c8b45a;
+  --theme-lib-spine: #8a8570;
+  --theme-lib-todo: #c4a574;
+  --theme-lib-archive: #7a9e80;
+  --font-ui: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-data: "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
+  --bg-image:
+    radial-gradient(1200px 600px at 12% -10%, color-mix(in srgb, var(--signal) 10%, transparent), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, color-mix(in srgb, var(--running) 6%, transparent), transparent 50%),
+    linear-gradient(180deg, #12140f 0%, var(--bg) 45%, var(--bg) 100%);
+  --topbar-blur: blur(10px);
+  --card-radius: 3px;
+  --led-radius: 1px;
+  --brand-track: 0.14em;
+}
+
+html[data-theme="blueprint"] {
+  --bg: #070d14;
+  --bg-elevated: #0c1520;
+  --bg-card: #0f1a26;
+  --border: #1e3040;
+  --text: #e4eef6;
+  --text-muted: #7a93a8;
+  --waiting: #d4a84a;
+  --running: #3ecf8e;
+  --subagent: #4eb0e0;
+  --idle: #5a7084;
+  --error: #e85d5d;
+  --signal: #3db8e8;
+  --theme-lib-spine: #4a7a96;
+  --theme-lib-todo: #c4a574;
+  --theme-lib-archive: #4a9aaa;
+  --font-ui: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-data: "SF Mono", "Menlo", "Consolas", monospace;
+  --bg-image:
+    linear-gradient(color-mix(in srgb, var(--signal) 9%, transparent) 1px, transparent 1px) 0 0 / 100% 16px,
+    linear-gradient(90deg, color-mix(in srgb, var(--signal) 9%, transparent) 1px, transparent 1px) 0 0 / 16px 100%,
+    radial-gradient(900px 480px at 85% -5%, color-mix(in srgb, var(--signal) 14%, transparent), transparent 55%),
+    linear-gradient(180deg, #0a121c 0%, var(--bg) 42%, var(--bg) 100%);
+  --topbar-blur: blur(10px);
+  --card-radius: 4px;
+  --led-radius: 50%;
+  --brand-track: 0.12em;
+}
+
+html[data-theme="ink"] {
+  --bg: #000000;
+  --bg-elevated: #0a0a0a;
+  --bg-card: #0f0f0f;
+  --border: #222222;
+  --text: #f2f2f2;
+  --text-muted: #777777;
+  --waiting: #e0b84e;
+  --running: #5fd68a;
+  --subagent: #6aa3c4;
+  --idle: #555555;
+  --error: #e05555;
+  --signal: #e8e8e8;
+  --theme-lib-spine: #666666;
+  --theme-lib-todo: #a09070;
+  --theme-lib-archive: #608080;
+  --font-ui: "SF Mono", "Menlo", "Consolas", monospace;
+  --font-data: "SF Mono", "Menlo", "Consolas", monospace;
+  --bg-image: none;
+  --topbar-blur: none;
+  --card-radius: 0;
+  --led-radius: 0;
+  --brand-track: 0.18em;
+}
+
+html[data-theme="brass"] {
+  --bg: #121110;
+  --bg-elevated: #1a1816;
+  --bg-card: #1f1c19;
+  --border: #342f2a;
+  --text: #efe8de;
+  --text-muted: #9a9086;
+  --waiting: #c4a574;
+  --running: #6a9e78;
+  --subagent: #6a8fa0;
+  --idle: #6e655c;
+  --error: #c46a5a;
+  --signal: #c4a574;
+  --theme-lib-spine: #8a8070;
+  --theme-lib-todo: #c4a574;
+  --theme-lib-archive: #7a9e98;
+  --font-ui: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-data: "SF Mono", "Menlo", "Consolas", monospace;
+  --bg-image:
+    radial-gradient(900px 480px at 20% -15%, color-mix(in srgb, var(--signal) 9%, transparent), transparent 55%),
+    linear-gradient(180deg, #181512 0%, var(--bg) 50%, var(--bg) 100%);
+  --topbar-blur: blur(12px);
+  --card-radius: 6px;
+  --led-radius: 2px;
+  --brand-track: 0.02em;
+}
+
+html[data-theme="ink"] .topbar h1,
+html[data-theme="phosphor"] .topbar h1,
+html[data-theme="blueprint"] .topbar h1 {
+  text-transform: uppercase;
+}
+
+html[data-theme="brass"] .topbar h1 {
+  text-transform: none;
+  font-style: italic;
+  letter-spacing: var(--brand-track);
+  font-weight: 600;
+}
+
+html[data-theme="ink"] .card,
+html[data-theme="ink"] .library-dialog,
+html[data-theme="ink"] .settings-alias-row,
+html[data-theme="ink"] .count-led i,
+html[data-theme="ink"] .workspace-path {
+  border-radius: 0 !important;
+}
+
+html[data-theme="blueprint"] .library-tabs [role="tab"][aria-selected="true"]::after {
+  height: 1px;
+}
+
+html[data-theme="ink"] .library-tabs [role="tab"][aria-selected="true"]::after {
+  height: 1px;
+  background: #fff;
+}

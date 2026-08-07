@@ -33,4 +33,19 @@ describe("library web helpers", () => {
     expect(entriesInFolder(entries, "todo", null).map((e) => e.conversationId)).toEqual(["1"]);
     expect(entriesInFolder(entries, "todo", "a").map((e) => e.conversationId)).toEqual(["2"]);
   });
+
+  it("entriesInFolder includes descendant folders when folders provided", () => {
+    const folders = [
+      { id: "a", mark: "todo", parentId: null, name: "A", sortKey: 0 },
+      { id: "b", mark: "todo", parentId: "a", name: "B", sortKey: 0 },
+    ];
+    const entries = [
+      { conversationId: "in-a", mark: "todo", folderId: "a" },
+      { conversationId: "in-b", mark: "todo", folderId: "b" },
+      { conversationId: "other", mark: "todo", folderId: null },
+    ];
+    expect(
+      entriesInFolder(entries, "todo", "a", folders).map((e) => e.conversationId).sort(),
+    ).toEqual(["in-a", "in-b"]);
+  });
 });

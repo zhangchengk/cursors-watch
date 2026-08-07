@@ -14,6 +14,8 @@ export interface LibraryEntry {
   folderId: string | null;
   title?: string;
   note?: string;
+  /** Ordered unique absolute paths to local .md files (Library attachments). */
+  attachments?: string[];
   projectKey?: string;
   workspacePath?: string;
   workspaceLabel?: string;

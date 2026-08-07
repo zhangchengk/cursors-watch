@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { libraryFile, stateDir } from "../constants.js";
+import {
+  mergeAttachmentPaths,
+  type AttachmentReject,
+} from "./attachments.js";
 import type {
   CreateFolderInput,
   LibraryEntry,
@@ -36,17 +41,49 @@ function isFolder(raw: unknown): raw is LibraryFolder {
   );
 }
 
+function coerceAttachments(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string" || !item.trim()) continue;
+    const p = item.trim();
+    if (seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out.length ? out : undefined;
+}
+
 function isEntry(raw: unknown): raw is LibraryEntry {
   if (!raw || typeof raw !== "object") return false;
   const o = raw as Record<string, unknown>;
-  return (
-    typeof o.conversationId === "string" &&
-    !!o.conversationId &&
-    isLibraryMark(o.mark) &&
-    (o.folderId === null || typeof o.folderId === "string") &&
-    typeof o.updatedAt === "number" &&
-    Number.isFinite(o.updatedAt)
-  );
+  if (
+    !(
+      typeof o.conversationId === "string" &&
+      !!o.conversationId &&
+      isLibraryMark(o.mark) &&
+      (o.folderId === null || typeof o.folderId === "string") &&
+      typeof o.updatedAt === "number" &&
+      Number.isFinite(o.updatedAt)
+    )
+  ) {
+    return false;
+  }
+  if (o.attachments !== undefined && !Array.isArray(o.attachments)) return false;
+  return true;
+}
+
+function withCoercedAttachments(entry: LibraryEntry): LibraryEntry {
+  const attachments = coerceAttachments(entry.attachments);
+  if (!attachments) {
+    if (entry.attachments) {
+      const { attachments: _drop, ...rest } = entry;
+      return rest;
+    }
+    return entry;
+  }
+  return { ...entry, attachments };
 }
 
 function saveLibrary(home: string, state: LibraryState): void {
@@ -65,7 +102,9 @@ export function loadLibrary(home: string): LibraryState {
     if (!raw || typeof raw !== "object") return { ...EMPTY, folders: [], entries: [] };
     const o = raw as Record<string, unknown>;
     const folders = Array.isArray(o.folders) ? o.folders.filter(isFolder) : [];
-    const entries = Array.isArray(o.entries) ? o.entries.filter(isEntry) : [];
+    const entries = Array.isArray(o.entries)
+      ? o.entries.filter(isEntry).map(withCoercedAttachments)
+      : [];
     return { version: 1, folders, entries };
   } catch {
     return { ...EMPTY, folders: [], entries: [] };
@@ -114,9 +153,9 @@ function applyOptionalString(
   if (value === undefined) return;
   const trimmed = value.trim();
   if (!trimmed) {
-    delete (target as Record<string, unknown>)[key];
+    delete (target as unknown as Record<string, unknown>)[key];
   } else {
-    (target as Record<string, unknown>)[key] = trimmed;
+    (target as unknown as Record<string, unknown>)[key] = trimmed;
   }
 }
 
@@ -150,6 +189,8 @@ export function upsertEntry(home: string, input: UpsertLibraryEntryInput): Libra
 
   if (input.note !== undefined) applyOptionalString(next, "note", input.note);
   else if (prev?.note) next.note = prev.note;
+
+  if (prev?.attachments?.length) next.attachments = [...prev.attachments];
 
   const snapKeys = [
     "projectKey",
@@ -233,6 +274,61 @@ export function deleteEntry(home: string, conversationId: string): boolean {
   if (state.entries.length === before) return false;
   saveLibrary(home, state);
   return true;
+}
+
+export type AddAttachmentsResult = {
+  entry: LibraryEntry;
+  added: string[];
+  rejected: AttachmentReject[];
+};
+
+export function addAttachments(
+  home: string,
+  conversationId: string,
+  paths: string[],
+): AddAttachmentsResult {
+  const id = conversationId?.trim() ?? "";
+  if (!id) throw new Error("conversationId required");
+  const state = loadLibrary(home);
+  const idx = state.entries.findIndex((e) => e.conversationId === id);
+  if (idx < 0) throw new Error("entry not found");
+  const prev = state.entries[idx]!;
+  const merged = mergeAttachmentPaths(prev.attachments, paths);
+  const next: LibraryEntry = {
+    ...prev,
+    updatedAt: Date.now(),
+  };
+  if (merged.attachments.length) next.attachments = merged.attachments;
+  else delete next.attachments;
+  state.entries[idx] = next;
+  saveLibrary(home, state);
+  return { entry: next, added: merged.added, rejected: merged.rejected };
+}
+
+export function removeAttachment(
+  home: string,
+  conversationId: string,
+  filePath: string,
+): LibraryEntry | null {
+  const id = conversationId?.trim() ?? "";
+  if (!id) return null;
+  const state = loadLibrary(home);
+  const idx = state.entries.findIndex((e) => e.conversationId === id);
+  if (idx < 0) return null;
+  const prev = state.entries[idx]!;
+  const target = String(filePath || "").trim()
+    ? path.resolve(String(filePath).trim())
+    : "";
+  const nextList = (prev.attachments ?? []).filter((p) => p !== target);
+  const next: LibraryEntry = {
+    ...prev,
+    updatedAt: Date.now(),
+  };
+  if (nextList.length) next.attachments = nextList;
+  else delete next.attachments;
+  state.entries[idx] = next;
+  saveLibrary(home, state);
+  return next;
 }
 
 export function createFolder(home: string, input: CreateFolderInput): LibraryFolder {
