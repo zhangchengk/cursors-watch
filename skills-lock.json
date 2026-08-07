@@ -61,6 +61,12 @@
       "skillPath": "skills/engineering/tdd/SKILL.md",
       "computedHash": "81eca2a5b53a63f481c0849be7a663a8cd43d5cf53f32b644ec0a2f50cf91aa2"
     },
+    "tech-doc-style-chinese": {
+      "source": "Fenng/Tech-Doc-Style-Chinese",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "f264e644f97a73ad572cc123d5b097ee0c8885710c73c2bcbf7c65fd4a4f6038"
+    },
     "to-spec": {
       "source": "mattpocock/skills",
       "sourceType": "github",

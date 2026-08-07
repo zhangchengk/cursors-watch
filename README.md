@@ -2,33 +2,38 @@
 
 [English](./README.en.md)
 
-Cursors Watch 盯的是本机多个 Cursor Agent 会话（npm 包名仍是 `cursor-watch`）。某次对话 Turn end 时，它用系统通知或 HUD 打断你，并在面板收件箱留下一条待确认；下方「运行中」列出当前还在跑的会话。面板顶栏还有 **Todo / Archive** 馆藏：把想法已验证、待落地的 Chat 标成代办，或把值得回看、本机当面宣讲的 Chat 归档，可加标题/备注与文件夹（本机全局树）。
+Cursors Watch 监控本机多个 Cursor Agent 会话。面向本机使用 Cursor Agent 的开发者；推荐从下方「安装」开始，装好菜单栏 App 后打开面板。
 
-发 Reminder 需要 hooks；打开对应 Agent Chat 需要桥扩展（均随 App/`open` **默认安装并自检**）。会话仍处在 Active `/loop` 时，hooks 打出的 `stop` 不算结束，避免误报。面板 `↗` 会先打开该会话工作区，再经桥扩展调用 Cursor 命令聚焦对应 Chat（已在 Cursor 3.13.x 验证；属半内部 API，大版本升级后若失效会降级为仅开工程并 toast）。不会改会话内容或替你调度。
+并列主职有两项：
 
-它不是任务中枢或远程监控，也不能替代 Cursor 侧边栏；馆藏不做导出或多人同步。数据只读本机 Cursor 目录（见后文），馆藏标注写在 `~/.cursor-watch/`，且仅支持 macOS。服务只绑 localhost，路径和消息摘录按原文展示、不做脱敏，所以不要把端口暴露到公网。
+1. Reminder（提醒）：对话 Turn end 时通过系统通知或 HUD 打断，并在面板收件箱留下一条待确认项；下方「运行中」列出当前仍在跑的会话。
+2. Chat library（会话馆藏）：将有意义的 Agent Chat 标为 Todo（代办）或 Archive（归档）；可写标题与备注、绑定本机 `.md` 附件，并放入各自独立、任意深度的本机全局文件夹树，便于回看落地或本机当面宣讲。
+
+面板顶层三个 Tab：`Reminder`（启动默认）、`Todo`、`Archive`。一条 Chat 至多一个馆藏状态（无标注 / 代办 / 归档），与收件箱是否待确认无关；不会根据未读或 Turn end 自动打标。
+
+发 Reminder 需要 hooks；打开对应 Agent Chat 需要桥扩展。两者随 App / `open` 默认安装并自检。会话仍处在 Active `/loop` 时，hooks 打出的 `stop` 不视为结束，避免误报。面板 `↗` 先打开该会话工作区，再经桥扩展聚焦对应 Chat（已在 Cursor 3.13.x 验证；属半内部 API，大版本升级后若失效则降级为只开工程并 toast）。不修改会话内容，也不代为调度任务。
 
 ## 截图
 
-在 Cursor 里写代码时，Cursors Watch 用系统通知 / HUD 打断你（不必切到浏览器）：
+在 Cursor 中编写代码时，Cursors Watch 通过系统通知 / HUD 提醒（无需切换到浏览器）：
 
 ![在 Cursor 中工作时收到 Cursors Watch 提醒](./docs/images/Cursors1.png)
 
-全屏面板：上方「待确认 Reminder」收件箱，下方「运行中」会话；顶栏可调列数、看状态计数、开关声音与全屏：
+全屏面板：顶层为 Reminder / Todo / Archive；Reminder 内上方为「待确认」收件箱、下方为「运行中」；顶栏可调列数、查看状态计数、开关声音、打开设置与全屏：
 
 ![Cursors Watch 面板：Reminder 收件箱与运行中会话](./docs/images/Cursors2.png)
 
 ## 要求
 
-- **macOS**（仅此平台；非 macOS 请勿安装）
-- **Node.js ≥ 20**（打包 / 开发需要；用 `.dmg` 安装的 App 已内嵌运行时）
-- 本机已安装 **Cursor**
-- 本机有过 Agent 会话时，才会在 `~/.cursor/projects` 下产生可扫描数据（没有 Agent 会话时面板可能为空）
+- macOS（仅此平台；非 macOS 请勿安装）
+- Node.js ≥ 20（打包 / 开发需要；用 `.dmg` 安装的 App 已内嵌运行时）
+- 本机已安装 Cursor
+- 本机有过 Agent 会话后，`~/.cursor/projects` 下才会产生可扫描数据（无 Agent 会话时面板可能为空）
 - 纯本地运行：不需要网络或额外账号
 
 ## 安装（推荐：菜单栏 App）
 
-日常用法是安装非正式 App **Cursors Watch**（菜单栏 `CW`），不必每次 `npx` 再开浏览器。
+日常用法是安装非正式 App Cursors Watch（菜单栏缩写 `CW`），无需每次 `npx` 再开浏览器。
 
 ```bash
 git clone git@github.com:zhangchengk/cursors-watch.git
@@ -39,19 +44,18 @@ npm run package:dmg           # 生成 .dmg
 npm run package:app:install   # → /Applications/Cursors Watch.app
 ```
 
-- **`.dmg` 产物**：`macos/CursorWatch/dist/Cursors-Watch-<version>.dmg`  
-  打开后把 **Cursors Watch** 拖进 Applications。未公证；首次打开若被拦，在「系统设置 → 隐私与安全性」允许即可。
-- 安装后从「应用程序」打开：**登录时打开**默认开启（菜单可关）；壳负责拉起 daemon、打开面板。
-- **Reminder**：优先壳的系统通知；权限未开或失败则壳内 **HUD** 浮层兜底。
-- 若 `7423` 上已是本服务的旧 daemon，壳会**接管**并打开面板；只有被其它程序占用才会报错。
-- 更新：再跑 `package:dmg` / `package:app:install` 覆盖。不含 hooks 一键安装与自动更新。
-- **完全磁盘访问**：壳在首次启动时若尚未授权，会**询问一次**并引导到「系统设置 → 隐私与安全性 → 完全磁盘访问权限」勾选 Cursors Watch（菜单栏右键也可再打开）。授权后一般不必再对桌面/文稿等逐个点允许。安装脚本用本机固定签名证书（`~/.cursor-watch/codesign.keychain`），避免覆盖安装后因 ad-hoc 签名变化而丢权限、再弹一遍。
+- `.dmg` 产物：`macos/CursorWatch/dist/Cursors-Watch-<version>.dmg`。打开后将 Cursors Watch 拖入 Applications。未公证；首次打开若被拦截，在「系统设置 → 隐私与安全性」中允许即可。
+- 安装后从「应用程序」打开。「登录时打开」默认开启（可在菜单关闭）。菜单栏壳负责拉起 daemon 并打开面板。
+- Reminder：优先使用壳的系统通知；权限未开或投递失败时，改用壳内 HUD 浮层。
+- 若端口 `7423` 上已是本服务的旧 daemon，壳会接管并打开面板；仅当被其它程序占用时才会报错。
+- 打开 App / 执行 `cursor-watch open` 时会自检并尽量安装 hooks 与桥扩展。更新时再跑 `package:dmg` / `package:app:install` 覆盖安装。不含自动更新。
+- 完全磁盘访问：首次启动若尚未授权，壳会询问一次，并引导至「系统设置 → 隐私与安全性 → 完全磁盘访问权限」勾选 Cursors Watch（菜单栏右键也可再次打开）。授权后通常无需再对桌面、文稿等逐个允许。安装脚本使用本机固定签名证书（`~/.cursor-watch/codesign.keychain`），避免覆盖安装后因 ad-hoc 签名变化丢失权限并再次弹窗。
 
-技术标识保持 `cursor-watch` / `com.cursor-watch.*`；人看见的名字是 **Cursors Watch**。
+技术标识保持 `cursor-watch` / `com.cursor-watch.*`；面向用户的显示名为 Cursors Watch。
 
 ### 开发 / CLI（可选）
 
-本包为私有仓库工具，**不能**从 npm registry 安装；也**不要**执行 `npm i -g cursor-watch`。
+本包为私有仓库工具，不能从 npm registry 安装；也不要执行 `npm i -g cursor-watch`。
 
 ```bash
 cd cursors-watch/cursor-watch
@@ -61,9 +65,9 @@ npx cursor-watch stop
 npm link                  # 可选：任意目录可用 cursor-watch
 ```
 
-- 默认面板：`http://127.0.0.1:7423`（环境变量 `CURSOR_WATCH_PORT` 可改）
+- 默认面板：`http://127.0.0.1:7423`（可用环境变量 `CURSOR_WATCH_PORT` 覆盖）
 - 开发自检：`npm test`；热重载：`npm run dev`
-- 调试壳（不装到 Applications）：
+- 调试壳（不安装到 Applications）：
 
 ```bash
 CURSOR_WATCH_ROOT="$PWD" open "macos/CursorWatch/dist/Cursors Watch.app"
@@ -77,18 +81,19 @@ npx cursor-watch hooks status
 npx cursor-watch hooks uninstall
 ```
 
-不安装也可看面板：「在跑」主要靠 transcript 与 terminals 推断，可能略滞后。装上 hooks 后多一路 LIVE 快照，才能触发 Reminder（通知 + 收件箱），「在跑」也更准，但仍不是毫秒级遥测。Active `/loop` 哨兵还在时，tick 间隙的 `stop` 会被压制。hooks 失败不影响 Cursor 本身。
+未安装 hooks 也可查看面板：「在跑」主要依据 transcript 与 terminals 推断，可能略有滞后。安装 hooks 后增加 LIVE 快照通道，才能触发 Reminder（通知 + 收件箱），「在跑」判定也更准确，但仍不是毫秒级遥测。Active `/loop` 哨兵仍在时，tick 间隙的 `stop` 会被压制。hooks 失败不影响 Cursor 本身。
 
-## 面板怎么读
+## 面板说明
 
-- 顶栏是 Cursors Watch；可调卡片列数（默认 2，窄屏 <720px 强制 1 列）、状态色点计数、声音（默认静音）、全屏（`F`；App 内走系统全屏）。
-- 上方「待确认 Reminder」：Turn end 后需要你看的项。未装 hooks 时这里提示安装命令。可单条确认或全部确认；点通知也可确认。↗ 只打开工作区文件夹，不定位到某个 chat。
-- 下方「运行中」：只列 LIVE / `running` / `subagent` 的会话卡片。
-- 服务端保留策略仍作用于会话快照：未读一直保留；进行中始终可见；已读且本轮结束约 30 分钟；纯 idle 约 15 分钟。
-- 顶栏色点统计全部会话（含未在「运行中」列出的 waiting / idle / error）。
-- 卡片标题优先用侧边栏 chat 名，否则用首条用户消息摘要。
+- 顶栏显示 Cursors Watch；可调卡片列数（默认 2；窄屏宽度小于 720px 时强制 1 列）、状态色点计数、声音（默认静音）、设置、全屏（快捷键 `F`；App 内使用系统全屏）。
+- 三个 Tab：`Reminder`、`Todo`、`Archive`。上次选中的 Tab 会记在本机；冷启动仍默认 Reminder。
+- Reminder Tab：上方为「待确认 Reminder」（Turn end 后需人工确认的项；未装 hooks 时提示安装命令；可单条或全部确认，点击通知也可确认）。下方「运行中」只列出 LIVE / `running` / `subagent`。卡片可点「馆藏」标为 Todo / Archive（可填标题、备注、目标树文件夹）；标注后不跳转 Tab。`↗` 打开工作区并尽量聚焦对应 Chat。
+- Todo / Archive Tab：左侧为文件夹树（含未归组），右侧为条目整理。可创建、修改、删除文件夹；可改标题与备注；可在代办与归档间互迁（互迁后落到目标树「未归组」，标题、备注与附件保留）；可取消标注（丢弃标题、备注、附件与文件夹归属）。源会话不可用时条目仍保留并标为失效；`↗` 可能失败并以 toast 提示。
+- 馆藏附件：仅在 Todo / Archive 整理面绑定本机 `.md`（保存绝对路径引用，不拷贝文件内容）；可在面板内只读预览，或在 Finder 中显示。文件被挪走后引用仍保留，预览标为不可用。
+- 设置：外观四套主题（Blueprint 为默认，另有 Phosphor、Ink、Brass）；工作区别名（已知工程绝对路径映射为短名，仅面板展示层覆盖，悬停仍可看全路径；通知与 HUD 文案在 v1 不解析别名）。别名与声音等同属本机 prefs；清空馆藏不会删除别名。
+- 服务端保留策略作用于会话快照：未读一直保留；进行中始终可见；已读且本轮结束约 30 分钟；纯 idle 约 15 分钟。顶栏色点统计全部会话（含未在「运行中」列出的 waiting / idle / error）。卡片标题优先使用侧边栏 chat 名，否则使用首条用户消息摘要；馆藏列表主行优先使用馆藏标题。
 
-## 架构鸟瞰
+## 架构概览
 
 ```text
 Cursors Watch.app（菜单栏壳）
@@ -103,30 +108,34 @@ Cursors Watch.app（菜单栏壳）
         │         ▼
         │      SessionStore
         │         │
+        ├─ ReminderHub / LibraryHub / prefs
+        │         │              ──读写──►  ~/.cursor-watch/
+        │         │                    （reminders / library / prefs / …）
+        │         ▼
         └─ Fastify：静态面板 + /api/* + /ws
                   │
                   ▼
          WKWebView 面板（或浏览器）
                   │
-         Reminder：壳系统通知 → HUD 兜底
+         Reminder：壳系统通知 → 失败时 HUD 浮层
 ```
 
 流程要点：
 
-1. 打开 App（或 `cursor-watch open`）拉起 / 接管 daemon，再打开面板。
-2. watcher 发现变更后由 scan-worker 扫描并推断状态，写入内存 store。
-3. 面板 `GET /api/sessions` + `/ws` 近实时刷新；Reminder 另走 `/api/reminders` 与通知通道。
-4. 展示前聚合子会话、丢掉已不存在的工作区，并按分层保留策略裁剪。
+1. 打开 App（或执行 `cursor-watch open`）拉起或接管 daemon，自检 hooks 与桥扩展，再打开面板。
+2. watcher 发现变更后，由 scan-worker 扫描并推断状态，写入内存 store。
+3. 面板通过 `GET /api/sessions` 与 `/ws` 近实时刷新；Reminder 与 library 另有 REST 与 WebSocket 推送；prefs 走 `/api/prefs`。
+4. 展示前聚合子会话、丢弃已不存在的工作区，并按分层保留策略裁剪。馆藏条目不因会话被 prune 而自动删除。
 
 ## 信任边界
 
-- HTTP/WebSocket **仅监听** `127.0.0.1`（默认端口 `7423`）。
-- 面板展示工作区路径与消息摘要的**原文**，不做脱敏。
-- **不要**把端口暴露到公网，也不要通过反向代理给其他人访问。
-- **只读范围**：扫描 `~/.cursor/projects` 与 `composerHeaders` 时不写回会话内容。
-- **写盘例外**：仅 `hooks install` 写入 `~/.cursor/hooks.json`、`~/.cursor/hooks/` 与运行时的 `~/.cursor-watch/live`。
-- 「在 Cursor 中打开」只接受**当前已扫描会话**里出现过的工作区路径。
-- 服务本身**无登录鉴权**：信任边界等于「能登录这台 Mac 的用户」。
+- HTTP / WebSocket 仅监听 `127.0.0.1`（默认端口 `7423`）。
+- 面板展示工作区路径与消息摘要的原文，不做脱敏。
+- 勿将端口暴露到公网，也勿通过反向代理供他人访问。
+- 只读范围：扫描 `~/.cursor/projects` 与 `composerHeaders` 时不写回会话内容。
+- 写盘例外：`hooks install` 写入 `~/.cursor/hooks.json`、`~/.cursor/hooks/`；运行时写入 `~/.cursor-watch/` 下的 live、reminders、library、prefs、loop-ledger、shell-notify 等。馆藏附件只存路径引用，预览时按路径读盘，不把 `.md` 内容拷贝进 watch home。
+- 「在 Cursor 中打开」/ Open Chat 只接受当前已扫描会话、待确认 Reminder 或馆藏条目中出现过的工作区路径。
+- 服务本身无登录鉴权：信任边界等于能登录本机 Mac 的用户。
 
 ## 附录：实现说明
 
@@ -135,17 +144,20 @@ Cursors Watch.app（菜单栏壳）
 | 模块 | 作用 |
 |---|---|
 | `cli.ts` | `open` / `status` / `stop` / `daemon` / `hooks` |
-| `daemon.ts` | 写 pid、起 HTTP、挂 watcher |
+| `daemon.ts` | 写 pid、起 HTTP、挂 watcher、自检组件 |
+| `ensure-components.ts` | hooks + 桥扩展默认安装与自检 |
 | `watcher.ts` + `scan-worker.ts` | 文件监听；子进程扫描 |
 | `scanner.ts` | 遍历 projects、解析 transcript / terminals、合并 live |
 | `aggregator.ts` | 子会话并入父会话；过滤不可见会话 |
 | `infer/status.ts` | 由 transcript + shell 推断 `AgentStatus` |
 | `live-state.ts` / `reminders/*` | LIVE、Turn end Reminder、通知适配器 |
+| `library/*` | Chat library 状态、失效判定、附件路径与预览 |
+| `prefs.ts` | 通知声音、工作区别名、面板主题 |
 | `loop-ledger/*` | Active `/loop` 哨兵账本（压制误报） |
 | `open-workspace.ts` | 校验路径后 `open -a Cursor <path>` |
-| `open-chat.ts` / `bridge/hub.ts` | 开工程 + 经扩展桥 `canvas.openAgentByConversationId` 聚焦 Chat |
-| `server.ts` | 静态资源、`/api/*`、`/ws` |
-| `web/*` | 收件箱优先面板（待确认 + 运行中） |
+| `open-chat.ts` / `bridge/hub.ts` | 开工程 + 经扩展桥聚焦 Chat |
+| `server.ts` | 静态资源、`/api/*`、`/ws`、`/ws/bridge` |
+| `web/*` | Reminder 收件箱 + Todo / Archive 馆藏 + 设置 |
 | `macos/CursorWatch` + `scripts/package-*.sh` | 菜单栏壳、`.app` / `.dmg` 打包 |
 
 ### 数据源
@@ -156,9 +168,12 @@ Cursors Watch.app（菜单栏壳）
 | 同项目下 terminals | Shell 是否仍在跑 / 退出码 |
 | Cursor 本地 DB `composerHeaders` | chat 名称、`hasUnread` 等 |
 | `~/.cursor-watch/live/<conversationId>.json` | hooks LIVE 快照（可选） |
+| `~/.cursor-watch/reminders.json` | 待确认 Reminder |
+| `~/.cursor-watch/library.json` | Todo / Archive 馆藏与文件夹树 |
+| `~/.cursor-watch/prefs.json` | 声音、工作区别名、`uiTheme` |
 | `~/.cursor-watch/shell-notify/` | 壳通知桥（`shell.alive` + intent JSON） |
 
-扫描时跳过 mtime 早于 **7 天**（`SCAN_LOOKBACK_MS`）的 transcript。
+扫描时跳过 mtime 早于 7 天（`SCAN_LOOKBACK_MS`）的 transcript。
 
 ### 关键常量
 
@@ -174,12 +189,12 @@ Cursors Watch.app（菜单栏壳）
 ### 状态与聚合（要点）
 
 1. 工具失败或 shell 非 0 → `error`
-2. 近期工具/shell 活动 → `running`
+2. 近期工具 / shell 活动 → `running`
 3. 有子 Agent 在跑 → `subagent`
 4. 最后一条是 assistant → `waiting`
 5. 否则 → `idle`
 
-**LIVE 盖写（非 error）**：live → 强制 `running`；turn ended 或非运行态 → 按未读变为 `waiting` / `idle`。
+LIVE 盖写（非 error）：live → 强制 `running`；turn ended 或非运行态 → 按未读变为 `waiting` / `idle`。
 
 ### HTTP / WebSocket
 
@@ -189,11 +204,21 @@ Cursors Watch.app（菜单栏壳）
 | `GET /api/sessions` | 当前 `SessionState[]` |
 | `GET /api/reminders` | 待确认 Reminder 列表 |
 | `POST /api/reminders/:conversationId/ack` | 确认一条 Reminder |
+| `GET /api/library` | 馆藏快照（folders + entries，含 `stale`） |
+| `POST /api/library/entries` | 标注 / 更新条目 |
+| `PATCH /api/library/entries/:conversationId` | 改 mark / 标题 / 备注 / 文件夹 |
+| `DELETE /api/library/entries/:conversationId` | 取消标注 |
+| `POST/DELETE …/attachments` | 绑定 / 解绑本机 `.md` 路径 |
+| `GET …/attachments/preview` | 只读预览附件内容 |
+| `POST …/attachments/reveal` | Finder 显示附件 |
+| `POST/PATCH/DELETE /api/library/folders[/:id]` | 文件夹 CRUD |
+| `GET/PUT /api/prefs` | 读取 / 部分合并本机偏好 |
 | `GET /api/hooks-status` | hooks 是否已安装 |
 | `POST /api/open-workspace` | body `{ path }` |
 | `POST /api/open-chat` | body `{ conversationId, workspacePath }` → 开工程并聚焦 Chat |
 | `GET /api/bridge-status` | `{ online, extensionVersion? }` |
-| `GET /ws` | 推送 `sessions` / `reminders` |
+| `GET /ws` | 推送 `sessions` / `reminders` / `library` |
+| `GET /ws/bridge` | 桥扩展连接 |
 
 ### Hooks
 
