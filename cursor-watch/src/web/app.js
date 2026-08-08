@@ -22,6 +22,8 @@ import {
   inboxViewModel,
   parseDeepLinkConversationId,
   reminderAckPath,
+  resolveInboxCardAction,
+  sameConversationOrder,
   shouldClearDeepLinkQuery,
 } from "./inbox.js";
 import {
@@ -182,12 +184,16 @@ function applyAttentionCols() {
 
 /**
  * @param {object} s
- * @param {{ showPathBar?: boolean, onAck?: (() => void) | null, selected?: boolean }} [opts]
+ * @param {{ showPathBar?: boolean, showAck?: boolean, selected?: boolean, bindLocalActions?: boolean }} [opts]
  */
-function mountCard(s, { showPathBar = false, onAck = null, selected = false } = {}) {
+function mountCard(
+  s,
+  { showPathBar = false, showAck = false, selected = false, bindLocalActions = true } = {},
+) {
   const card = document.createElement("div");
   card.className = `card attention ${s.status || "idle"}`;
   if (selected) card.classList.add("is-selected");
+  if (s.id) card.dataset.conversationId = s.id;
   card.tabIndex = 0;
   const lines = attentionCardLines(s);
   const banner = completionBanner(s);
@@ -214,7 +220,7 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
     showPathBar && place.text && place.text !== "—"
       ? `<div class="workspace-path${aliased ? " is-aliased" : ""}" title="${escapeHtml(place.titlePath || place.text)}">${escapeHtml(place.text)}</div>`
       : "";
-  const ackRow = onAck
+  const ackRow = showAck
     ? `<div class="card-actions"><button type="button" class="inbox-ack">确认</button>${markBtn}</div>`
     : markBtn
       ? `<div class="card-actions">${markBtn}</div>`
@@ -261,29 +267,105 @@ function mountCard(s, { showPathBar = false, onAck = null, selected = false } = 
       void openInCursor(s);
     });
   }
-  const ackBtn = card.querySelector(".inbox-ack");
-  if (ackBtn && onAck) {
-    ackBtn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      onAck();
-    });
-  }
-  const markEl = card.querySelector(".library-mark-btn");
-  if (markEl) {
-    markEl.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      openMarkDialog({
-        conversationId: s.id,
-        workspacePath: s.workspacePath,
-        workspaceLabel: s.workspaceLabel,
-        projectKey: s.projectKey,
-        chatName: s.chatName,
-        transcriptPath: s.transcriptPath,
-        title: sessionTitle(s),
+  if (bindLocalActions) {
+    const markEl = card.querySelector(".library-mark-btn");
+    if (markEl) {
+      markEl.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        openMarkDialog({
+          conversationId: s.id,
+          workspacePath: s.workspacePath,
+          workspaceLabel: s.workspaceLabel,
+          projectKey: s.projectKey,
+          chatName: s.chatName,
+          transcriptPath: s.transcriptPath,
+          title: sessionTitle(s),
+        });
       });
-    });
+    }
   }
   return card;
+}
+
+const CARD_STATUS_CLASSES = ["waiting", "running", "subagent", "idle", "error"];
+
+/**
+ * Update attention-card chrome in place; never replace `.card-actions` buttons.
+ * @param {HTMLElement} card
+ * @param {object} s
+ * @param {{ showPathBar?: boolean, selected?: boolean }} [opts]
+ */
+function patchAttentionCardSurface(card, s, { showPathBar = false, selected = false } = {}) {
+  const lines = attentionCardLines(s);
+  const banner = completionBanner(s);
+  const status = s.status || "idle";
+  for (const st of CARD_STATUS_CLASSES) {
+    card.classList.toggle(st, st === status);
+  }
+  card.classList.toggle("is-live", Boolean(s.live));
+  card.classList.toggle("is-selected", selected);
+  if (s.id) card.dataset.conversationId = s.id;
+
+  const summary = card.querySelector(".summary");
+  if (summary) {
+    summary.innerHTML = `${STATUS_ICON[status] ?? ""} ${escapeHtml(lines.title)} · ${formatDuration(lines.ageMs)}`;
+  }
+
+  const liveBit = s.live
+    ? `<span class="live-inline">LIVE</span> ${escapeHtml(s.liveHint || lines.subtitle)}`
+    : escapeHtml(lines.subtitle);
+  const summaryRow = card.querySelector(".summary-row");
+  let action = card.querySelector(".action");
+  if (liveBit) {
+    if (!action) {
+      action = document.createElement("div");
+      action.className = "action";
+      summaryRow?.after(action);
+    }
+    action.innerHTML = liveBit;
+  } else if (action) {
+    action.remove();
+  }
+
+  const place = displayWorkspacePlace(
+    lines.workspacePath,
+    lines.workspaceLabel,
+    workspaceAliases,
+  );
+  const aliased = Boolean(
+    lines.workspacePath &&
+      workspaceAliases[lines.workspacePath] &&
+      String(workspaceAliases[lines.workspacePath]).trim(),
+  );
+  let pathEl = card.querySelector(".workspace-path");
+  const wantPath = showPathBar && place.text && place.text !== "—";
+  if (wantPath) {
+    if (!pathEl) {
+      pathEl = document.createElement("div");
+      pathEl.className = "workspace-path";
+      const after = card.querySelector(".action") || summaryRow;
+      after?.after(pathEl);
+    }
+    pathEl.classList.toggle("is-aliased", aliased);
+    pathEl.title = place.titlePath || place.text;
+    pathEl.textContent = place.text;
+  } else if (pathEl) {
+    pathEl.remove();
+  }
+
+  let completion = card.querySelector(".completion");
+  if (banner) {
+    if (!completion) {
+      completion = document.createElement("div");
+      completion.className = "completion";
+      const actions = card.querySelector(".card-actions");
+      if (actions) actions.before(completion);
+      else card.appendChild(completion);
+    }
+    completion.textContent = banner;
+  } else if (completion) {
+    completion.remove();
+  }
 }
 
 function renderRunning(sessions) {
@@ -319,8 +401,8 @@ function render(sessions) {
   listEl.innerHTML = "";
   renderRunning(latestSessions);
   syncChrome();
-  // Re-render inbox so reminder cards pick up fresh session fields.
-  renderInbox(latestReminders);
+  // Keep inbox action buttons mounted; patch age / LIVE / path in place.
+  syncInboxCardSurfaces();
 }
 
 function reminderAsSession(r) {
@@ -398,13 +480,70 @@ function renderInbox(reminders) {
     inboxBodyEl.appendChild(
       mountCard(session, {
         showPathBar: true,
+        showAck: true,
         selected: selectedConversationId === r.conversationId,
-        onAck: () => {
-          void ackReminder(r.conversationId);
-        },
+        bindLocalActions: false,
       }),
     );
   }
+}
+
+/** Patch Reminder cards from latest sessions without tearing down 确认/馆藏 buttons. */
+function syncInboxCardSurfaces() {
+  if (!inboxBodyEl) return;
+  const model = inboxViewModel({
+    reminders: latestReminders,
+    hooksInstalled,
+  });
+  if (model.mode !== "list") return;
+
+  const cards = [...inboxBodyEl.querySelectorAll(":scope > .card[data-conversation-id]")];
+  const reminderIds = model.reminders.map((r) => r.conversationId);
+  const cardIds = cards.map((c) => c.dataset.conversationId || "");
+  if (!sameConversationOrder(reminderIds, cardIds)) {
+    renderInbox(latestReminders);
+    return;
+  }
+
+  if (inboxCountEl) inboxCountEl.textContent = `${model.reminders.length}`;
+  syncAckAllBtn(model);
+
+  for (let i = 0; i < model.reminders.length; i++) {
+    const r = model.reminders[i];
+    const card = cards[i];
+    if (!r || !card) continue;
+    patchAttentionCardSurface(card, reminderAsSession(r), {
+      showPathBar: true,
+      selected: selectedConversationId === r.conversationId,
+    });
+  }
+}
+
+function bindInboxBodyActions() {
+  if (!inboxBodyEl || inboxBodyEl.dataset.actionsBound === "1") return;
+  inboxBodyEl.dataset.actionsBound = "1";
+  inboxBodyEl.addEventListener("click", (ev) => {
+    const resolved = resolveInboxCardAction(ev.target, inboxBodyEl);
+    if (!resolved) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (resolved.action === "ack") {
+      void ackReminder(resolved.conversationId);
+      return;
+    }
+    const r = latestReminders.find((x) => x.conversationId === resolved.conversationId);
+    const session = r ? reminderAsSession(r) : findSession(resolved.conversationId);
+    if (!session) return;
+    openMarkDialog({
+      conversationId: session.id,
+      workspacePath: session.workspacePath,
+      workspaceLabel: session.workspaceLabel,
+      projectKey: session.projectKey,
+      chatName: session.chatName,
+      transcriptPath: session.transcriptPath,
+      title: sessionTitle(session),
+    });
+  });
 }
 
 function findSession(conversationId) {
@@ -959,7 +1098,6 @@ async function fetchDaemonPrefs() {
 }
 
 function refreshWorkspaceDisplays() {
-  renderInbox(latestReminders);
   render(latestSessions);
   if (activeTab === "todo" || activeTab === "archive") {
     renderLibraryPane(activeTab);
@@ -1751,6 +1889,7 @@ async function boot() {
   bindPanelSettings();
   bindTabs();
   bindMarkDialog();
+  bindInboxBodyActions();
   document.addEventListener("click", (ev) => {
     if (!ev.target.closest(".library-folder-more")) closeLibraryFolderMenus();
   });

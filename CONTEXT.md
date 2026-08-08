@@ -89,8 +89,8 @@ _Avoid_: 把 hooks 安装/自动更新绑进首版必达、首版做成完整上
 _Avoid_: 首版就要求公证与分发流水线、把「非正式」理解成「不用 .app、继续只靠终端」、交付后仍依赖仓库内临时路径当日常入口、App 启动时挂载仓库热更当正式方案
 
 **Reminder acknowledgment（提醒确认）**:
-用户表示「看到了」：在面板打开该会话（或点确认），或点击对应系统通知。任一即可消掉收件箱中的该条 Reminder。
-_Avoid_: 必须等 Cursor 未读清除、仅靠超时消失（作为唯一消法）
+用户显式表示「看到了」：点面板上的「确认」/「全部确认」，或点击对应系统通知（深链）。任一即可消掉收件箱中的该条 Reminder。点卡片仅打开详情、不算确认。
+_Avoid_: 必须等 Cursor 未读清除、仅靠超时消失（作为唯一消法）、把打开抽屉/看详情当成确认
 
 **Loop ledger（循环账本）**:
 按会话记录的 Active loop 账：在 `preToolUse` 发现疑似 `/loop` 哨兵命令时写入 `conversationId` 相关记录；daemon 以本机进程表匹配哨兵命令行为主（`AGENT_LOOP_TICK_*` / `AGENT_LOOP_WAKE_*`），若命令行/环境带有 conversationId 标记则优先用标记绑定。

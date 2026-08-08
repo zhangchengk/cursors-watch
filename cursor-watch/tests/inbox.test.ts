@@ -8,6 +8,8 @@ import {
   reminderAckPath,
   reminderDisplayMeta,
   reminderDisplayTitle,
+  resolveInboxCardAction,
+  sameConversationOrder,
   shouldClearDeepLinkQuery,
   sortInboxReminders,
 } from "../src/web/inbox.js";
@@ -211,6 +213,67 @@ describe("inboxViewModel", () => {
     expect(model.mode).toBe("list");
     expect(model.reminders.map((r) => r.conversationId)).toEqual(["new", "old"]);
     expect(model.hooksCommand).toBeNull();
+  });
+});
+
+describe("sameConversationOrder", () => {
+  it("matches identical id sequences", () => {
+    expect(sameConversationOrder(["a", "b"], ["a", "b"])).toBe(true);
+  });
+
+  it("rejects length or order mismatch", () => {
+    expect(sameConversationOrder(["a"], ["a", "b"])).toBe(false);
+    expect(sameConversationOrder(["a", "b"], ["b", "a"])).toBe(false);
+  });
+});
+
+describe("resolveInboxCardAction", () => {
+  it("resolves ack and mark from delegated click targets", () => {
+    const card = {
+      getAttribute: (name: string) => (name === "data-conversation-id" ? "c1" : null),
+      closest(sel: string) {
+        return sel === "[data-conversation-id]" ? card : null;
+      },
+    };
+    const ackBtn = {
+      closest(sel: string) {
+        if (sel === ".inbox-ack") return ackBtn;
+        if (sel === "[data-conversation-id]") return card;
+        return null;
+      },
+    };
+    const markBtn = {
+      closest(sel: string) {
+        if (sel === ".library-mark-btn") return markBtn;
+        if (sel === ".inbox-ack") return null;
+        if (sel === "[data-conversation-id]") return card;
+        return null;
+      },
+    };
+    const root = {
+      contains(node: unknown) {
+        return node === ackBtn || node === markBtn;
+      },
+    };
+
+    expect(resolveInboxCardAction(ackBtn, root)).toEqual({
+      action: "ack",
+      conversationId: "c1",
+    });
+    expect(resolveInboxCardAction(markBtn, root)).toEqual({
+      action: "mark",
+      conversationId: "c1",
+    });
+  });
+
+  it("ignores clicks outside inbox root", () => {
+    const orphanAck = {
+      closest(sel: string) {
+        return sel === ".inbox-ack" ? orphanAck : null;
+      },
+    };
+    const root = { contains: () => false };
+    expect(resolveInboxCardAction(orphanAck, root)).toBeNull();
   });
 });
 

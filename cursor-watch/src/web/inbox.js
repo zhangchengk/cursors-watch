@@ -153,3 +153,48 @@ export function inboxViewModel({ reminders, hooksInstalled }) {
     hooksCommand: null,
   };
 }
+
+/**
+ * True when mounted inbox cards match pending Reminder order (same ids, same sequence).
+ * Used to decide in-place surface refresh vs full rebuild.
+ * @param {string[]} reminderIds
+ * @param {string[]} mountedCardIds
+ * @returns {boolean}
+ */
+export function sameConversationOrder(reminderIds, mountedCardIds) {
+  const a = reminderIds || [];
+  const b = mountedCardIds || [];
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * Resolve inbox delegated click: explicit Reminder acknowledgment or library mark entry.
+ * @param {EventTarget | null | undefined} target
+ * @param {ParentNode | null | undefined} root
+ * @returns {{ action: "ack" | "mark", conversationId: string } | null}
+ */
+export function resolveInboxCardAction(target, root) {
+  if (!target || !root || typeof target.closest !== "function") return null;
+  /** @type {Element} */
+  const el = /** @type {Element} */ (target);
+
+  const ack = el.closest(".inbox-ack");
+  if (ack && root.contains(ack)) {
+    const host = ack.closest("[data-conversation-id]");
+    const id = host?.getAttribute("data-conversation-id")?.trim();
+    return id ? { action: "ack", conversationId: id } : null;
+  }
+
+  const mark = el.closest(".library-mark-btn");
+  if (mark && root.contains(mark)) {
+    const host = mark.closest("[data-conversation-id]");
+    const id = host?.getAttribute("data-conversation-id")?.trim();
+    return id ? { action: "mark", conversationId: id } : null;
+  }
+
+  return null;
+}
