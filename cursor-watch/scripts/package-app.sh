@@ -147,4 +147,15 @@ if [ "$DO_INSTALL" = "install" ]; then
     "$LSREG" -kill -r -domain user 2>/dev/null || true
     "$LSREG" -f "$INSTALL_TO" 2>/dev/null || true
   fi
+
+  # Stale Node daemon keeps old TS modules in memory; UI can look new while API ignores new fields.
+  if pgrep -f 'Cursors Watch.app/Contents/Resources/.*cli.ts daemon' >/dev/null 2>&1 \
+    || pgrep -x 'Cursors Watch' >/dev/null 2>&1; then
+    echo "Restarting Cursors Watch so the new daemon loads…"
+    osascript -e 'quit app "Cursors Watch"' >/dev/null 2>&1 || true
+    sleep 1
+    pkill -f 'Cursors Watch.app/Contents/Resources/.*cli.ts daemon' >/dev/null 2>&1 || true
+    sleep 1
+    open -a "Cursors Watch" >/dev/null 2>&1 || true
+  fi
 fi

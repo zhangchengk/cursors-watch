@@ -86,10 +86,11 @@ The panel works without hooks: "running" then comes mainly from transcripts and 
 
 ## Reading the panel
 
-- Top bar brand Cursors Watch; column stepper (default 2; viewports under 720px force 1 column), status color counts, Sound (muted by default), settings gear, Fullscreen (`F`; native fullscreen inside the App).
+- Top bar brand Cursors Watch; list column stepper (default 2; viewports under 720px force 1 column; **same N shared** by Reminder and Todo / Archive), status color counts, Sound (muted by default), settings gear, Fullscreen (`F`; native fullscreen inside the App).
 - Three tabs: `Reminder` | `Todo` | `Archive`. Last selected tab is remembered locally; cold start still defaults to Reminder.
-- Reminder tab: pending Reminder inbox on top (Turn end items that need your eyes; without hooks shows the install command; per-card Confirm or Confirm all; OS notification click can also ack). Running below lists only LIVE / `running` / `subagent`. Cards have a Library action to mark Todo / Archive (optional title, note, target-tree folder); marking does not switch tabs. `↗` opens the workspace and tries to focus the chat.
-- Todo / Archive tabs: folder tree on the left (including Unfiled), entry curation on the right. Create/rename/delete folders, edit title and note, move todo↔archive (lands Unfiled in the target tree; title/note/attachments kept), unmark (discards title, note, attachments, and folder). If the source chat is gone the entry stays and is marked stale; `↗` may fail with a toast.
+- Reminder tab: pending Reminder inbox on top (Turn end items that need your eyes; without hooks shows the install command; per-card Confirm or Confirm all; OS notification click can also ack). Running below lists only LIVE / `running` / `subagent`. Cards have a Library action to mark Todo / Archive (optional title, note, target-tree folder; no attachments or priority at mark time); marking does not switch tabs. `↗` opens the workspace and tries to focus the chat.
+- Todo / Archive tabs: folder tree on the left (top item「全部」/ All = full tab), entry curation on the right. Stage header has **Collapse / Expand**: collapsed hides note and attachments, keeps title and action bar (remembered per folder; default expanded). Create/rename/delete folders, edit title and note, move todo↔archive (lands in target-tree All / unfiled; title/note/attachments kept; **Todo priority discarded**), unmark (discards title, note, attachments, priority, and folder). If the source chat is gone the entry stays and is marked stale; `↗` may fail with a toast.
+- Todo priority: Todo curation only — mutually exclusive Urgent / Important / None (segmented control on the card; also editable in the edit dialog). Viewing All or a folder sorts urgent → important → none; within a tier the prior relative order is kept. Archive has no priority field.
 - Library attachments: bind local `.md` files only from Todo / Archive curation (absolute path refs, no content copy); read-only in-panel preview, or reveal in Finder as a secondary action. If the file moves, the ref remains and preview shows unavailable.
 - Settings (gear): four UI themes (Blueprint default, Phosphor, Ink, Brass); workspace aliases (known absolute path → short nickname, display-layer overlay in the panel, hover still shows the full path; notification/HUD copy does not resolve aliases in v1). Aliases live in machine prefs with sound; clearing the library does not delete them.
 - Server retention still applies to the session snapshot: unread kept; in-progress always visible; read + turn-ended ~30 minutes; pure idle ~15 minutes. Top-bar dots count all sessions (including waiting / idle / error not listed under Running). Card titles prefer the Agent sidebar chat name, else the first user-message summary; library list rows prefer the library title.
@@ -207,7 +208,7 @@ LIVE override (non-error): live → force `running`; turn ended or non-running �
 | `POST /api/reminders/:conversationId/ack` | acknowledge one Reminder |
 | `GET /api/library` | library snapshot (folders + entries, with `stale`) |
 | `POST /api/library/entries` | mark / upsert an entry |
-| `PATCH /api/library/entries/:conversationId` | change mark / title / note / folder |
+| `PATCH /api/library/entries/:conversationId` | change mark / title / note / folder / Todo priority |
 | `DELETE /api/library/entries/:conversationId` | unmark |
 | `POST/DELETE …/attachments` | bind / unbind local `.md` paths |
 | `GET …/attachments/preview` | read-only attachment preview |

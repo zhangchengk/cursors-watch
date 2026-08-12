@@ -14,6 +14,7 @@ import type {
   LibraryState,
   PatchFolderInput,
   PatchLibraryEntryInput,
+  TodoPriority,
   UpsertLibraryEntryInput,
 } from "./types.js";
 
@@ -25,6 +26,36 @@ function ensureStateDir(home: string): void {
 
 function isLibraryMark(v: unknown): v is LibraryMark {
   return v === "todo" || v === "archive";
+}
+
+function isTodoPriority(v: unknown): v is TodoPriority {
+  return v === "urgent" || v === "important";
+}
+
+/** Normalize patch/upsert priority input; undefined = leave unchanged at call site. */
+export function coerceTodoPriorityInput(
+  v: unknown,
+): TodoPriority | "none" | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === "none" || v === "") return "none";
+  if (isTodoPriority(v)) return v;
+  return "none";
+}
+
+function stripPriority(entry: LibraryEntry): LibraryEntry {
+  if (!entry.priority) return entry;
+  const { priority: _drop, ...rest } = entry;
+  return rest;
+}
+
+function withCoercedPriority(entry: LibraryEntry): LibraryEntry {
+  let next = entry;
+  if (entry.mark !== "todo") {
+    next = stripPriority(next);
+  } else if (entry.priority !== undefined && !isTodoPriority(entry.priority)) {
+    next = stripPriority(next);
+  }
+  return next;
 }
 
 function isFolder(raw: unknown): raw is LibraryFolder {
@@ -76,14 +107,16 @@ function isEntry(raw: unknown): raw is LibraryEntry {
 
 function withCoercedAttachments(entry: LibraryEntry): LibraryEntry {
   const attachments = coerceAttachments(entry.attachments);
+  let next: LibraryEntry = entry;
   if (!attachments) {
     if (entry.attachments) {
       const { attachments: _drop, ...rest } = entry;
-      return rest;
+      next = rest;
     }
-    return entry;
+  } else {
+    next = { ...entry, attachments };
   }
-  return { ...entry, attachments };
+  return withCoercedPriority(next);
 }
 
 function saveLibrary(home: string, state: LibraryState): void {
@@ -192,6 +225,17 @@ export function upsertEntry(home: string, input: UpsertLibraryEntryInput): Libra
 
   if (prev?.attachments?.length) next.attachments = [...prev.attachments];
 
+  const priorityIn = coerceTodoPriorityInput(input.priority);
+  if (input.mark === "todo") {
+    if (priorityIn === "urgent" || priorityIn === "important") {
+      next.priority = priorityIn;
+    } else if (priorityIn === "none") {
+      /* cleared */
+    } else if (prev?.mark === "todo" && isTodoPriority(prev.priority)) {
+      next.priority = prev.priority;
+    }
+  }
+
   const snapKeys = [
     "projectKey",
     "workspacePath",
@@ -248,6 +292,20 @@ export function patchEntry(
   if (patch.note !== undefined) {
     if (patch.note === null || !String(patch.note).trim()) delete next.note;
     else next.note = String(patch.note).trim();
+  }
+
+  const markChanged = patch.mark !== undefined && patch.mark !== prev.mark;
+  if (mark === "archive") {
+    delete next.priority;
+  } else if (markChanged && mark === "todo") {
+    delete next.priority;
+  } else {
+    const priorityIn = coerceTodoPriorityInput(patch.priority);
+    if (priorityIn === "urgent" || priorityIn === "important") {
+      next.priority = priorityIn;
+    } else if (priorityIn === "none") {
+      delete next.priority;
+    }
   }
 
   for (const k of [

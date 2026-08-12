@@ -1,5 +1,8 @@
 export type LibraryMark = "todo" | "archive";
 
+/** Todo-only; omit / absent means 无 (none). */
+export type TodoPriority = "urgent" | "important";
+
 export interface LibraryFolder {
   id: string;
   mark: LibraryMark;
@@ -14,6 +17,8 @@ export interface LibraryEntry {
   folderId: string | null;
   title?: string;
   note?: string;
+  /** Todo only: urgent | important; absent = none. Never on archive. */
+  priority?: TodoPriority;
   /** Ordered unique absolute paths to local .md files (Library attachments). */
   attachments?: string[];
   projectKey?: string;
@@ -36,6 +41,8 @@ export type UpsertLibraryEntryInput = {
   folderId?: string | null;
   title?: string;
   note?: string;
+  /** Todo only; ignored for archive. Pass null/"none" to clear. */
+  priority?: TodoPriority | "none" | null;
   projectKey?: string;
   workspacePath?: string;
   workspaceLabel?: string;
@@ -48,6 +55,7 @@ export type PatchLibraryEntryInput = {
   folderId?: string | null;
   title?: string | null;
   note?: string | null;
+  priority?: TodoPriority | "none" | null;
   projectKey?: string;
   workspacePath?: string;
   workspaceLabel?: string;

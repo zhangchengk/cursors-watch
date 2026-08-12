@@ -1,7 +1,21 @@
 export const LIBRARY_TAB_KEY = "cursor-watch-library-tab";
+/** localStorage map: `${mark}:${folderId|""}` → boolean compact */
+export const LIBRARY_CARD_COMPACT_KEY = "cursor-watch.libraryCardCompact";
 
 /** @typedef {"reminder"|"todo"|"archive"} LibraryTab */
 /** @typedef {"todo"|"archive"} LibraryMark */
+
+/**
+ * @param {unknown} [storage]
+ */
+function storageOrNull(storage) {
+  if (storage) return storage;
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * @returns {LibraryTab}
@@ -23,6 +37,93 @@ export function saveLibraryTab(tab) {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Stable key for Library card compact per mark + folder ("" = 「全部」).
+ * @param {LibraryMark} mark
+ * @param {string|null|undefined} folderId
+ */
+export function libraryCardCompactKey(mark, folderId) {
+  return `${mark}:${folderId || ""}`;
+}
+
+/**
+ * @param {unknown} [storage]
+ * @returns {Record<string, boolean>}
+ */
+export function loadLibraryCardCompactMap(storage) {
+  const s = storageOrNull(storage);
+  try {
+    const raw = s?.getItem?.(LIBRARY_CARD_COMPACT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    /** @type {Record<string, boolean>} */
+    const out = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "boolean") out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * @param {Record<string, boolean>} map
+ * @param {unknown} [storage]
+ */
+function saveLibraryCardCompactMap(map, storage) {
+  try {
+    storageOrNull(storage)?.setItem?.(LIBRARY_CARD_COMPACT_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Default expanded (false). Only true when explicitly stored.
+ * @param {LibraryMark} mark
+ * @param {string|null|undefined} folderId
+ * @param {unknown} [storage]
+ */
+export function isLibraryCardCompact(mark, folderId, storage) {
+  const map = loadLibraryCardCompactMap(storage);
+  return map[libraryCardCompactKey(mark, folderId)] === true;
+}
+
+/**
+ * @param {LibraryMark} mark
+ * @param {string|null|undefined} folderId
+ * @param {boolean} compact
+ * @param {unknown} [storage]
+ */
+export function setLibraryCardCompact(mark, folderId, compact, storage) {
+  const map = loadLibraryCardCompactMap(storage);
+  const key = libraryCardCompactKey(mark, folderId);
+  if (compact) map[key] = true;
+  else delete map[key];
+  saveLibraryCardCompactMap(map, storage);
+}
+
+/**
+ * Drop compact prefs for deleted folder ids (same mark).
+ * @param {LibraryMark} mark
+ * @param {Iterable<string>} folderIds
+ * @param {unknown} [storage]
+ */
+export function clearLibraryCardCompactForFolders(mark, folderIds, storage) {
+  const map = loadLibraryCardCompactMap(storage);
+  let changed = false;
+  for (const id of folderIds) {
+    const key = libraryCardCompactKey(mark, id);
+    if (key in map) {
+      delete map[key];
+      changed = true;
+    }
+  }
+  if (changed) saveLibraryCardCompactMap(map, storage);
 }
 
 /**
@@ -146,4 +247,32 @@ export function folderSelectOptions(folders, mark) {
   }
   walk(tree, 0);
   return out;
+}
+
+/**
+ * @param {{ priority?: string }} entry
+ * @returns {0|1|2}
+ */
+export function todoPriorityRank(entry) {
+  const p = entry?.priority;
+  if (p === "urgent") return 0;
+  if (p === "important") return 1;
+  return 2;
+}
+
+/**
+ * Todo lists: urgent → important → none; stable within tier.
+ * Archive (and other marks): leave order unchanged.
+ * @template {{ priority?: string }} T
+ * @param {T[]} entries
+ * @param {string} mark
+ * @returns {T[]}
+ */
+export function sortLibraryEntriesForMark(entries, mark) {
+  const list = entries || [];
+  if (mark !== "todo") return list;
+  return list
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => todoPriorityRank(a.e) - todoPriorityRank(b.e) || a.i - b.i)
+    .map((x) => x.e);
 }

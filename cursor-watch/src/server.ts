@@ -10,6 +10,7 @@ import { BridgeHub } from "./bridge/hub.js";
 import { hooksStatus } from "./hooks-install.js";
 import { LibraryHub } from "./library/hub.js";
 import { isPathAttached, readAttachedMarkdown } from "./library/preview.js";
+import { coerceTodoPriorityInput } from "./library/store.js";
 import type { LibraryMark } from "./library/types.js";
 import { openChatInCursor } from "./open-chat.js";
 import { openWorkspaceInCursor } from "./open-workspace.js";
@@ -104,6 +105,7 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
       folderId?: unknown;
       title?: unknown;
       note?: unknown;
+      priority?: unknown;
       projectKey?: unknown;
       workspacePath?: unknown;
       workspaceLabel?: unknown;
@@ -129,6 +131,7 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
               : undefined,
         title: typeof req.body?.title === "string" ? req.body.title : undefined,
         note: typeof req.body?.note === "string" ? req.body.note : undefined,
+        priority: coerceTodoPriorityInput(req.body?.priority),
         projectKey: typeof req.body?.projectKey === "string" ? req.body.projectKey : undefined,
         workspacePath:
           typeof req.body?.workspacePath === "string" ? req.body.workspacePath : undefined,
@@ -168,6 +171,7 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
               : undefined,
         note:
           body.note === null ? null : typeof body.note === "string" ? body.note : undefined,
+        priority: coerceTodoPriorityInput(body.priority),
         projectKey: typeof body.projectKey === "string" ? body.projectKey : undefined,
         workspacePath: typeof body.workspacePath === "string" ? body.workspacePath : undefined,
         workspaceLabel:

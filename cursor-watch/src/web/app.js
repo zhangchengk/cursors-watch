@@ -28,13 +28,17 @@ import {
 } from "./inbox.js";
 import {
   buildFolderTree,
+  clearLibraryCardCompactForFolders,
   entryDisplayTitle,
   entriesInFolder,
   folderChatCount,
   folderSelectOptions,
   foldersForMark,
+  isLibraryCardCompact,
   loadLibraryTab,
   saveLibraryTab,
+  setLibraryCardCompact,
+  sortLibraryEntriesForMark,
 } from "./library.js";
 import { displayWorkspacePlace, collectKnownWorkspacePaths } from "./workspace-display.js";
 import { renderMarkdown } from "./markdown.js";
@@ -180,6 +184,12 @@ function applyAttentionCols() {
   const css = String(cols);
   if (listEl) listEl.style.setProperty("--attention-cols", css);
   if (inboxBodyEl) inboxBodyEl.style.setProperty("--attention-cols", css);
+  for (const id of ["todoList", "archiveList"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.classList.add("list-attention");
+    el.style.setProperty("--attention-cols", css);
+  }
 }
 
 /**
@@ -1137,6 +1147,24 @@ function fillFolderSelect(selectEl, mark, selectedId) {
   selectEl.value = selectedId || "";
 }
 
+function syncMarkDialogPriorityVisibility() {
+  const markSelect = document.getElementById("libraryMarkSelect");
+  const priorityLabel = document.getElementById("libraryPriorityLabel");
+  const prioritySelect = document.getElementById("libraryPrioritySelect");
+  if (!markSelect || !priorityLabel || !prioritySelect) return;
+  const existing = markDialogContext
+    ? (latestLibrary.entries || []).find(
+        (e) => e.conversationId === markDialogContext.conversationId,
+      )
+    : null;
+  // Reminder first-mark: hide. Edit existing + Todo: show.
+  const show = Boolean(existing) && markSelect.value === "todo";
+  priorityLabel.hidden = !show;
+  if (!show) return;
+  const p = existing?.priority;
+  prioritySelect.value = p === "urgent" || p === "important" ? p : "none";
+}
+
 function openMarkDialog(ctx) {
   const dialog = document.getElementById("libraryMarkDialog");
   const markSelect = document.getElementById("libraryMarkSelect");
@@ -1155,7 +1183,11 @@ function openMarkDialog(ctx) {
   noteInput.value = existing?.note || "";
   convInput.value = ctx.conversationId;
   fillFolderSelect(folderSelect, markSelect.value, existing?.folderId || "");
-  markSelect.onchange = () => fillFolderSelect(folderSelect, markSelect.value, "");
+  markSelect.onchange = () => {
+    fillFolderSelect(folderSelect, markSelect.value, "");
+    syncMarkDialogPriorityVisibility();
+  };
+  syncMarkDialogPriorityVisibility();
   if (typeof dialog.showModal === "function") dialog.showModal();
 }
 
@@ -1197,6 +1229,14 @@ async function submitMarkDialog() {
     chatName: ctx.chatName,
     transcriptPath: ctx.transcriptPath,
   };
+
+  const existing = (latestLibrary.entries || []).find(
+    (e) => e.conversationId === ctx.conversationId,
+  );
+  const prioritySelect = document.getElementById("libraryPrioritySelect");
+  if (existing && payload.mark === "todo" && prioritySelect) {
+    payload.priority = prioritySelect.value || "none";
+  }
 
   try {
     const res = await fetch("/api/library/entries", {
@@ -1271,8 +1311,21 @@ function renderLibraryPane(mark) {
     selectedFolder == null
       ? "全部"
       : folders.find((f) => f.id === selectedFolder)?.name || "文件夹";
+  const compact = isLibraryCardCompact(mark, selectedFolder);
   if (stageHead) {
-    stageHead.innerHTML = `<strong>${escapeHtml(selectedName)}</strong>`;
+    stageHead.innerHTML = `
+      <strong>${escapeHtml(selectedName)}</strong>
+      <button
+        type="button"
+        class="library-compact-toggle"
+        data-act="toggle-compact"
+        aria-pressed="${compact ? "true" : "false"}"
+        title="${compact ? "展开备注与附件" : "折叠备注与附件"}"
+      >${compact ? "展开" : "折叠"}</button>`;
+    stageHead.querySelector('[data-act="toggle-compact"]')?.addEventListener("click", () => {
+      setLibraryCardCompact(mark, selectedFolder, !compact);
+      renderLibraryPane(mark);
+    });
   }
 
   function renderNodes(nodes) {
@@ -1334,22 +1387,30 @@ function renderLibraryPane(mark) {
     if (folder) bindLibraryFolderMenu(wrap, mark, folder);
   });
 
-  const entries = entriesInFolder(
-    latestLibrary.entries || [],
+  const entries = sortLibraryEntriesForMark(
+    entriesInFolder(
+      latestLibrary.entries || [],
+      mark,
+      selectedFolder,
+      folders,
+    ),
     mark,
-    selectedFolder,
-    folders,
   );
   if (!entries.length) {
     listElLib.innerHTML = `<div class="library-empty"><strong>这里还没有条目</strong>在 Reminder 列表点「馆藏」标注；点左上角 + 建根文件夹，悬停目录右侧三点可建子文件夹。</div>`;
+    applyAttentionCols();
     return;
   }
 
   listElLib.innerHTML = "";
   for (const entry of entries) {
     const card = document.createElement("article");
-    card.className = `library-entry${entry.stale ? " is-stale" : ""}`;
     const title = entryDisplayTitle(entry);
+    const curPriority =
+      entry.priority === "urgent" || entry.priority === "important" ? entry.priority : "none";
+    card.className = `library-entry${entry.stale ? " is-stale" : ""}${compact ? " is-compact" : ""}${
+      mark === "todo" && curPriority !== "none" ? ` is-priority-${curPriority}` : ""
+    }`;
     const placeInfo = displayWorkspacePlace(
       entry.workspacePath,
       entry.workspaceLabel,
@@ -1364,7 +1425,9 @@ function renderLibraryPane(mark) {
     const attachmentViews = Array.isArray(entry.attachmentViews)
       ? entry.attachmentViews
       : (entry.attachments || []).map((p) => ({ path: p, available: true }));
-    const attachmentsHtml = `
+    const attachmentsHtml = compact
+      ? ""
+      : `
       <div class="library-attachments">
         <div class="library-attachments-head">
           <span>附件 MD</span>
@@ -1390,12 +1453,33 @@ function renderLibraryPane(mark) {
             : `<p class="library-attachments-empty">尚未绑定本地 .md</p>`
         }
       </div>`;
+    const noteHtml =
+      !compact && entry.note
+        ? `<div class="library-entry-note">${escapeHtml(entry.note)}</div>`
+        : "";
+    const priorityHtml =
+      mark === "todo"
+        ? `<div class="library-priority" data-value="${curPriority}" role="group" aria-label="代办优先级">
+        <button type="button" class="library-priority-opt" data-priority="urgent" aria-pressed="${
+          curPriority === "urgent" ? "true" : "false"
+        }"><span class="library-priority-dot" aria-hidden="true"></span>紧急</button>
+        <button type="button" class="library-priority-opt" data-priority="important" aria-pressed="${
+          curPriority === "important" ? "true" : "false"
+        }"><span class="library-priority-dot" aria-hidden="true"></span>重要</button>
+        <button type="button" class="library-priority-opt library-priority-opt--none" data-priority="none" aria-pressed="${
+          curPriority === "none" ? "true" : "false"
+        }">无</button>
+      </div>`
+        : "";
     card.innerHTML = `
-      <div class="library-entry-title">${escapeHtml(title)}${
-        entry.stale ? `<span class="library-stale-badge">源会话不可用</span>` : ""
-      }</div>
+      <div class="library-entry-head">
+        <div class="library-entry-title">${escapeHtml(title)}${
+          entry.stale ? `<span class="library-stale-badge">源会话不可用</span>` : ""
+        }</div>
+        ${priorityHtml}
+      </div>
       <div class="library-entry-meta" title="${escapeHtml(placeInfo.titlePath)}">${escapeHtml(place.trim() || "—")}</div>
-      ${entry.note ? `<div class="library-entry-note">${escapeHtml(entry.note)}</div>` : ""}
+      ${noteHtml}
       ${attachmentsHtml}
       <div class="library-entry-actions">
         <button type="button" data-act="edit">编辑</button>
@@ -1416,6 +1500,12 @@ function renderLibraryPane(mark) {
         title: entry.title || entry.chatName || "",
       });
     });
+    for (const btn of card.querySelectorAll("[data-priority]")) {
+      btn.addEventListener("click", () => {
+        const next = btn.getAttribute("data-priority") || "none";
+        void patchLibraryEntry(entry.conversationId, { priority: next });
+      });
+    }
     card.querySelector('[data-act="move"]')?.addEventListener("click", () => {
       void moveLibraryEntry(entry, mark);
     });
@@ -1450,6 +1540,7 @@ function renderLibraryPane(mark) {
     }
     listElLib.appendChild(card);
   }
+  applyAttentionCols();
 }
 
 /**
@@ -1636,6 +1727,7 @@ async function deleteLibraryFolder(mark, folderId) {
       return;
     }
     if (libraryFolderFilter[mark] === id) libraryFolderFilter[mark] = null;
+    clearLibraryCardCompactForFolders(mark, [id]);
     showToast("已删除文件夹");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "删除失败");
@@ -1667,7 +1759,23 @@ async function patchLibraryEntry(conversationId, patch) {
       body: JSON.stringify(patch),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) showToast(data.error || "更新失败");
+    if (!res.ok) {
+      showToast(data.error || "更新失败");
+      return;
+    }
+    // Prefer immediate UI refresh; WS snapshot may also arrive.
+    if (data.entry && typeof data.entry === "object") {
+      const list = Array.isArray(latestLibrary.entries) ? [...latestLibrary.entries] : [];
+      const i = list.findIndex((e) => e.conversationId === conversationId);
+      if (i >= 0) list[i] = data.entry;
+      else list.push(data.entry);
+      latestLibrary = { ...latestLibrary, entries: list };
+      if (activeTab === "todo" || activeTab === "archive") {
+        renderLibraryPane(activeTab);
+      }
+    } else {
+      await fetchLibrary();
+    }
   } catch (err) {
     showToast(err instanceof Error ? err.message : "更新失败");
   }

@@ -11,7 +11,7 @@
     <header class="topbar">
       <h1>Cursors Watch</h1>
       <div class="topbar-right">
-        <div class="view-controls" role="group" aria-label="列数">
+        <div class="view-controls" role="group" aria-label="面板列表列数">
           <div class="cols-control" id="colsControl">
             <button type="button" id="colsDec" aria-label="减少列数">−</button>
             <span id="colsValue">2</span>
@@ -119,6 +119,14 @@
         <label>
           备注
           <textarea id="libraryNoteInput" name="note" rows="4"></textarea>
+        </label>
+        <label id="libraryPriorityLabel" hidden>
+          优先级
+          <select id="libraryPrioritySelect" name="priority">
+            <option value="none">无</option>
+            <option value="urgent">紧急</option>
+            <option value="important">重要</option>
+          </select>
         </label>
         <label>
           文件夹

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { libraryFile } from "../src/constants.js";
+import { libraryFile, stateDir } from "../src/constants.js";
 import {
   createFolder,
   deleteEntry,
@@ -61,6 +61,7 @@ describe("library store", () => {
       folderId: folder.id,
       title: "T",
       note: "N",
+      priority: "urgent",
     });
     upsertEntry(home, { conversationId: "c1", mark: "archive" });
     const e = loadLibrary(home).entries[0]!;
@@ -68,6 +69,44 @@ describe("library store", () => {
     expect(e.folderId).toBeNull();
     expect(e.title).toBe("T");
     expect(e.note).toBe("N");
+    expect(e.priority).toBeUndefined();
+  });
+
+  it("todo priority set/clear; discarded on archive and restored none on back", () => {
+    const home = tempHome();
+    upsertEntry(home, { conversationId: "c1", mark: "todo", priority: "important" });
+    expect(loadLibrary(home).entries[0]?.priority).toBe("important");
+    patchEntry(home, "c1", { priority: "urgent" });
+    expect(loadLibrary(home).entries[0]?.priority).toBe("urgent");
+    patchEntry(home, "c1", { priority: "none" });
+    expect(loadLibrary(home).entries[0]?.priority).toBeUndefined();
+    patchEntry(home, "c1", { priority: "urgent" });
+    patchEntry(home, "c1", { mark: "archive" });
+    expect(loadLibrary(home).entries[0]?.priority).toBeUndefined();
+    patchEntry(home, "c1", { mark: "todo" });
+    expect(loadLibrary(home).entries[0]?.priority).toBeUndefined();
+  });
+
+  it("loadLibrary strips priority from archive rows", () => {
+    const home = tempHome();
+    fs.mkdirSync(stateDir(home), { recursive: true });
+    fs.writeFileSync(
+      libraryFile(home),
+      `${JSON.stringify({
+        version: 1,
+        folders: [],
+        entries: [
+          {
+            conversationId: "c1",
+            mark: "archive",
+            folderId: null,
+            priority: "urgent",
+            updatedAt: Date.now(),
+          },
+        ],
+      })}\n`,
+    );
+    expect(loadLibrary(home).entries[0]?.priority).toBeUndefined();
   });
 
   it("deleteEntry removes metadata", () => {

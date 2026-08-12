@@ -85,10 +85,11 @@ npx cursor-watch hooks uninstall
 
 ## 面板说明
 
-- 顶栏显示 Cursors Watch；可调卡片列数（默认 2；窄屏宽度小于 720px 时强制 1 列）、状态色点计数、声音（默认静音）、设置、全屏（快捷键 `F`；App 内使用系统全屏）。
+- 顶栏显示 Cursors Watch；可调列表列数（默认 2；窄屏宽度小于 720px 时强制 1 列；Reminder 与 Todo / Archive **共用同一列数**）、状态色点计数、声音（默认静音）、设置、全屏（快捷键 `F`；App 内使用系统全屏）。
 - 三个 Tab：`Reminder`、`Todo`、`Archive`。上次选中的 Tab 会记在本机；冷启动仍默认 Reminder。
-- Reminder Tab：上方为「待确认 Reminder」（Turn end 后需人工确认的项；未装 hooks 时提示安装命令；可单条或全部确认，点击通知也可确认）。下方「运行中」只列出 LIVE / `running` / `subagent`。卡片可点「馆藏」标为 Todo / Archive（可填标题、备注、目标树文件夹）；标注后不跳转 Tab。`↗` 打开工作区并尽量聚焦对应 Chat。
-- Todo / Archive Tab：左侧为文件夹树（顶项「全部」为本 Tab 全量），右侧为条目整理。可创建、修改、删除文件夹；可改标题与备注；可在代办与归档间互迁（互迁后落到目标树「全部」/不进文件夹，标题、备注与附件保留）；可取消标注（丢弃标题、备注、附件与文件夹归属）。源会话不可用时条目仍保留并标为失效；`↗` 可能失败并以 toast 提示。
+- Reminder Tab：上方为「待确认 Reminder」（Turn end 后需人工确认的项；未装 hooks 时提示安装命令；可单条或全部确认，点击通知也可确认）。下方「运行中」只列出 LIVE / `running` / `subagent`。卡片可点「馆藏」标为 Todo / Archive（可填标题、备注、目标树文件夹；不含附件与优先级）；标注后不跳转 Tab。`↗` 打开工作区并尽量聚焦对应 Chat。
+- Todo / Archive Tab：左侧为文件夹树（顶项「全部」为本 Tab 全量），右侧为条目整理。列表标题旁可**折叠 / 展开**：折叠后隐藏备注与附件，仅留标题与底栏（按文件夹各自记忆，默认展开）。可创建、修改、删除文件夹；可改标题与备注；可在代办与归档间互迁（互迁后落到目标树「全部」/不进文件夹，标题、备注与附件保留，**Todo 优先级丢弃**）；可取消标注（丢弃标题、备注、附件、优先级与文件夹归属）。源会话不可用时条目仍保留并标为失效；`↗` 可能失败并以 toast 提示。
+- Todo 优先级：仅 Todo 整理面可设互斥三档「紧急 / 重要 / 无」（卡片三段控件；编辑对话框亦可改）。打开「全部」或某文件夹时，列表按紧急 → 重要 → 无排序，同档内保持原相对顺序。Archive 无此字段。
 - 馆藏附件：仅在 Todo / Archive 整理面绑定本机 `.md`（保存绝对路径引用，不拷贝文件内容）；可在面板内只读预览，或在 Finder 中显示。文件被挪走后引用仍保留，预览标为不可用。
 - 设置：外观四套主题（Blueprint 为默认，另有 Phosphor、Ink、Brass）；工作区别名（已知工程绝对路径映射为短名，仅面板展示层覆盖，悬停仍可看全路径；通知与 HUD 文案在 v1 不解析别名）。别名与声音等同属本机 prefs；清空馆藏不会删除别名。
 - 服务端保留策略作用于会话快照：未读一直保留；进行中始终可见；已读且本轮结束约 30 分钟；纯 idle 约 15 分钟。顶栏色点统计全部会话（含未在「运行中」列出的 waiting / idle / error）。卡片标题优先使用侧边栏 chat 名，否则使用首条用户消息摘要；馆藏列表主行优先使用馆藏标题。
@@ -206,7 +207,7 @@ LIVE 盖写（非 error）：live → 强制 `running`；turn ended 或非运行
 | `POST /api/reminders/:conversationId/ack` | 确认一条 Reminder |
 | `GET /api/library` | 馆藏快照（folders + entries，含 `stale`） |
 | `POST /api/library/entries` | 标注 / 更新条目 |
-| `PATCH /api/library/entries/:conversationId` | 改 mark / 标题 / 备注 / 文件夹 |
+| `PATCH /api/library/entries/:conversationId` | 改 mark / 标题 / 备注 / 文件夹 / Todo 优先级 |
 | `DELETE /api/library/entries/:conversationId` | 取消标注 |
 | `POST/DELETE …/attachments` | 绑定 / 解绑本机 `.md` 路径 |
 | `GET …/attachments/preview` | 只读预览附件内容 |
