@@ -169,19 +169,29 @@ describe("library attachments", () => {
     expect(r1.rejected).toEqual([]);
   });
 
-  it("addAttachments rejects missing and non-md", () => {
+  it("addAttachments rejects missing and non-md/html", () => {
     const home = tempHome();
     const dir = path.join(home, "docs");
     fs.mkdirSync(dir);
     const ok = path.join(dir, "ok.md");
+    const html = path.join(dir, "page.html");
+    const htm = path.join(dir, "old.htm");
     const txt = path.join(dir, "x.txt");
     fs.writeFileSync(ok, "x");
+    fs.writeFileSync(html, "<p>hi</p>");
+    fs.writeFileSync(htm, "<p>no</p>");
     fs.writeFileSync(txt, "x");
     upsertEntry(home, { conversationId: "c1", mark: "todo" });
-    const r = addAttachments(home, "c1", [ok, txt, path.join(dir, "missing.md")]);
-    expect(r.entry.attachments).toEqual([ok]);
+    const r = addAttachments(home, "c1", [
+      ok,
+      html,
+      htm,
+      txt,
+      path.join(dir, "missing.md"),
+    ]);
+    expect(r.entry.attachments).toEqual([ok, html]);
     expect(r.rejected.map((x) => x.path).sort()).toEqual(
-      [txt, path.join(dir, "missing.md")].sort(),
+      [htm, txt, path.join(dir, "missing.md")].sort(),
     );
   });
 

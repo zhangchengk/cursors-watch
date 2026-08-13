@@ -678,6 +678,62 @@ describe("library attachments API", () => {
       await app.close();
     }
   });
+
+  it("bind html; preview rejects; open accepts", async () => {
+    const home = tempHome();
+    const store = new SessionStore();
+    const libraryHub = new LibraryHub(home);
+    const app = await buildServer(store, { homeDir: home, libraryHub });
+    try {
+      const dir = path.join(home, "pages");
+      fs.mkdirSync(dir);
+      const html = path.join(dir, "deck.html");
+      const htm = path.join(dir, "old.htm");
+      fs.writeFileSync(html, "<html><body>hi</body></html>");
+      fs.writeFileSync(htm, "<html><body>no</body></html>");
+
+      await app.inject({
+        method: "POST",
+        url: "/api/library/entries",
+        payload: { conversationId: "att-html", mark: "archive", title: "H" },
+      });
+
+      const bound = await app.inject({
+        method: "POST",
+        url: "/api/library/entries/att-html/attachments",
+        payload: { paths: [html, htm] },
+      });
+      expect(bound.statusCode).toBe(200);
+      const body = bound.json() as {
+        entry: { attachments: string[] };
+        rejected: Array<{ path: string }>;
+      };
+      expect(body.entry.attachments).toEqual([html]);
+      expect(body.rejected.map((r) => r.path)).toEqual([htm]);
+
+      const previewHtml = await app.inject({
+        method: "GET",
+        url: `/api/library/entries/att-html/attachments/preview?path=${encodeURIComponent(html)}`,
+      });
+      expect(previewHtml.statusCode).toBe(400);
+
+      const opened = await app.inject({
+        method: "POST",
+        url: "/api/library/entries/att-html/attachments/open",
+        payload: { path: html },
+      });
+      expect(opened.statusCode).toBe(200);
+
+      const openMd = await app.inject({
+        method: "POST",
+        url: "/api/library/entries/att-html/attachments/open",
+        payload: { path: html + ".md" },
+      });
+      expect(openMd.statusCode).toBe(403);
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 describe("ReminderHub", () => {

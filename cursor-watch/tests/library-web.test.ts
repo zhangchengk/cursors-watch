@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  archiveEntryMatchesQuery,
   buildFolderTree,
   clearLibraryCardCompactForFolders,
   entryDisplayTitle,
   entriesInFolder,
+  filterEntriesByArchiveSearch,
   folderChatCount,
   foldersForMark,
   isLibraryCardCompact,
   libraryCardCompactKey,
+  normalizeArchiveSearchQuery,
   setLibraryCardCompact,
   sortLibraryEntriesForMark,
   todoPriorityRank,
@@ -89,32 +92,43 @@ describe("library web helpers", () => {
 });
 
 describe("library card compact prefs", () => {
-  it("defaults expanded; keys separate todo/archive and 全部 vs folder", () => {
+  it("defaults compact; keys separate todo/archive and 全部 vs folder; expanded is explicit false", () => {
     const s = memStorage();
     expect(libraryCardCompactKey("todo", null)).toBe("todo:");
     expect(libraryCardCompactKey("todo", "f1")).toBe("todo:f1");
-    expect(isLibraryCardCompact("todo", null, s)).toBe(false);
-
-    setLibraryCardCompact("todo", null, true, s);
-    setLibraryCardCompact("todo", "f1", true, s);
     expect(isLibraryCardCompact("todo", null, s)).toBe(true);
-    expect(isLibraryCardCompact("todo", "f1", s)).toBe(true);
-    expect(isLibraryCardCompact("archive", null, s)).toBe(false);
+    expect(isLibraryCardCompact("archive", null, s)).toBe(true);
 
     setLibraryCardCompact("todo", null, false, s);
+    setLibraryCardCompact("todo", "f1", false, s);
     expect(isLibraryCardCompact("todo", null, s)).toBe(false);
-    expect(isLibraryCardCompact("todo", "f1", s)).toBe(true);
+    expect(isLibraryCardCompact("todo", "f1", s)).toBe(false);
+    expect(isLibraryCardCompact("archive", null, s)).toBe(true);
+
+    setLibraryCardCompact("todo", null, true, s);
+    expect(isLibraryCardCompact("todo", null, s)).toBe(true);
+    expect(isLibraryCardCompact("todo", "f1", s)).toBe(false);
   });
 
-  it("clearLibraryCardCompactForFolders drops deleted folder keys only", () => {
+  it("keeps legacy stored true as compact", () => {
     const s = memStorage();
-    setLibraryCardCompact("todo", "gone", true, s);
-    setLibraryCardCompact("todo", "keep", true, s);
-    setLibraryCardCompact("todo", null, true, s);
-    clearLibraryCardCompactForFolders("todo", ["gone"], s);
-    expect(isLibraryCardCompact("todo", "gone", s)).toBe(false);
-    expect(isLibraryCardCompact("todo", "keep", s)).toBe(true);
+    s.setItem(
+      "cursor-watch.libraryCardCompact",
+      JSON.stringify({ "todo:": true, "todo:f1": false }),
+    );
     expect(isLibraryCardCompact("todo", null, s)).toBe(true);
+    expect(isLibraryCardCompact("todo", "f1", s)).toBe(false);
+  });
+
+  it("clearLibraryCardCompactForFolders drops deleted folder keys (back to default compact)", () => {
+    const s = memStorage();
+    setLibraryCardCompact("todo", "gone", false, s);
+    setLibraryCardCompact("todo", "keep", false, s);
+    setLibraryCardCompact("todo", null, false, s);
+    clearLibraryCardCompactForFolders("todo", ["gone"], s);
+    expect(isLibraryCardCompact("todo", "gone", s)).toBe(true);
+    expect(isLibraryCardCompact("todo", "keep", s)).toBe(false);
+    expect(isLibraryCardCompact("todo", null, s)).toBe(false);
   });
 });
 
@@ -140,5 +154,37 @@ describe("todo priority sort", () => {
     expect(
       sortLibraryEntriesForMark(entries, "archive").map((e) => e.conversationId),
     ).toEqual(["n1", "u1", "i1", "n2", "u2", "i2"]);
+  });
+});
+
+describe("archive list search", () => {
+  it("matches title, chatName, note case-insensitively; blank query passes all", () => {
+    expect(normalizeArchiveSearchQuery("  x  ")).toBe("x");
+    const e = {
+      title: "预汇总模型",
+      chatName: "自定义表达式",
+      note: "宣讲要点 ABC",
+    };
+    expect(archiveEntryMatchesQuery(e, "")).toBe(true);
+    expect(archiveEntryMatchesQuery(e, "预汇总")).toBe(true);
+    expect(archiveEntryMatchesQuery(e, "表达式")).toBe(true);
+    expect(archiveEntryMatchesQuery(e, "abc")).toBe(true);
+    expect(archiveEntryMatchesQuery(e, "找不到")).toBe(false);
+  });
+
+  it("filterEntriesByArchiveSearch keeps order of matches", () => {
+    const entries = [
+      { conversationId: "1", title: "alpha" },
+      { conversationId: "2", note: "keep me alpha" },
+      { conversationId: "3", chatName: "other" },
+    ];
+    expect(
+      filterEntriesByArchiveSearch(entries, "ALPHA").map((e) => e.conversationId),
+    ).toEqual(["1", "2"]);
+    expect(filterEntriesByArchiveSearch(entries, "  ").map((e) => e.conversationId)).toEqual([
+      "1",
+      "2",
+      "3",
+    ]);
   });
 });

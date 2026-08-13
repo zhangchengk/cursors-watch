@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { isReadableMarkdownFile } from "./attachments.js";
+import {
+  isHtmlPath,
+  isReadableHtmlFile,
+  isReadableMarkdownFile,
+} from "./attachments.js";
 import { loadLibrary } from "./store.js";
 
 export type AttachmentPreviewOk = {
@@ -11,15 +15,28 @@ export type AttachmentPreviewOk = {
 
 export type AttachmentPreviewErr = {
   ok: false;
-  status: 403 | 404;
+  status: 400 | 403 | 404;
   error: string;
 };
 
-export function readAttachedMarkdown(
+export type AttachmentOpenErr = {
+  ok: false;
+  status: 400 | 403 | 404;
+  error: string;
+};
+
+export type AttachmentOpenOk = {
+  ok: true;
+  path: string;
+};
+
+function resolveAttachedPath(
   home: string,
   conversationId: string,
   filePath: string,
-): AttachmentPreviewOk | AttachmentPreviewErr {
+):
+  | { ok: true; path: string }
+  | { ok: false; status: 403 | 404; error: string } {
   const id = conversationId?.trim() ?? "";
   const raw = typeof filePath === "string" ? filePath.trim() : "";
   if (!id || !raw) {
@@ -32,6 +49,24 @@ export function readAttachedMarkdown(
   if (!allowed) {
     return { ok: false, status: 403, error: "path is not attached to this entry" };
   }
+  return { ok: true, path: resolved };
+}
+
+export function readAttachedMarkdown(
+  home: string,
+  conversationId: string,
+  filePath: string,
+): AttachmentPreviewOk | AttachmentPreviewErr {
+  const attached = resolveAttachedPath(home, conversationId, filePath);
+  if (!attached.ok) return attached;
+  const resolved = attached.path;
+  if (isHtmlPath(resolved)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "html attachments open in the default browser",
+    };
+  }
   if (!isReadableMarkdownFile(resolved)) {
     return { ok: false, status: 404, error: "attachment file missing or unreadable" };
   }
@@ -41,6 +76,24 @@ export function readAttachedMarkdown(
   } catch {
     return { ok: false, status: 404, error: "attachment file missing or unreadable" };
   }
+}
+
+/** Validate an attached .html path for opening in the default browser. */
+export function prepareAttachedHtmlOpen(
+  home: string,
+  conversationId: string,
+  filePath: string,
+): AttachmentOpenOk | AttachmentOpenErr {
+  const attached = resolveAttachedPath(home, conversationId, filePath);
+  if (!attached.ok) return attached;
+  const resolved = attached.path;
+  if (!isHtmlPath(resolved)) {
+    return { ok: false, status: 400, error: "only .html attachments open in the browser" };
+  }
+  if (!isReadableHtmlFile(resolved)) {
+    return { ok: false, status: 404, error: "attachment file missing or unreadable" };
+  }
+  return { ok: true, path: resolved };
 }
 
 export function isPathAttached(

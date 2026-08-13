@@ -5,7 +5,7 @@
 Cursors Watch watches multiple local Cursor Agent sessions (npm package name remains `cursor-watch`). It does two primary jobs side by side:
 
 1. Reminder: on Turn end it interrupts you with an OS notification or HUD, leaves one pending item in the panel inbox, and lists currently running sessions below.
-2. Chat library: mark meaningful Agent chats as Todo or Archive, with optional titles/notes, local `.md` attachments, and a separate arbitrarily nested machine-global folder tree per mark, so you can land the work later or present the chat live on this Mac.
+2. Chat library: mark meaningful Agent chats as Todo or Archive, with optional titles/notes, local `.md` / `.html` attachments, and a separate arbitrarily nested machine-global folder tree per mark, so you can land the work later or present the chat live on this Mac.
 
 Top-level tabs: `Reminder` (cold-start default) | `Todo` | `Archive`. A chat has at most one library mark (none / todo / archive), independent of whether a Reminder is pending. Marks are never inferred from unread or Turn end.
 
@@ -89,9 +89,9 @@ The panel works without hooks: "running" then comes mainly from transcripts and 
 - Top bar brand Cursors Watch; list column stepper (default 2; viewports under 720px force 1 column; **same N shared** by Reminder and Todo / Archive), status color counts, Sound (muted by default), settings gear, Fullscreen (`F`; native fullscreen inside the App).
 - Three tabs: `Reminder` | `Todo` | `Archive`. Last selected tab is remembered locally; cold start still defaults to Reminder.
 - Reminder tab: pending Reminder inbox on top (Turn end items that need your eyes; without hooks shows the install command; per-card Confirm or Confirm all; OS notification click can also ack). Running below lists only LIVE / `running` / `subagent`. Cards have a Library action to mark Todo / Archive (optional title, note, target-tree folder; no attachments or priority at mark time); marking does not switch tabs. `↗` opens the workspace and tries to focus the chat.
-- Todo / Archive tabs: folder tree on the left (top item「全部」/ All = full tab), entry curation on the right. Stage header has **Collapse / Expand**: collapsed hides note and attachments, keeps title and action bar (remembered per folder; default expanded). Create/rename/delete folders, edit title and note, move todo↔archive (lands in target-tree All / unfiled; title/note/attachments kept; **Todo priority discarded**), unmark (discards title, note, attachments, priority, and folder). If the source chat is gone the entry stays and is marked stale; `↗` may fail with a toast.
+- Todo / Archive tabs: folder tree on the left (top item「全部」/ All = full tab), entry curation on the right. Stage header has **Collapse / Expand**: collapsed hides note and attachments, keeps title and action bar (remembered per folder; **default collapsed**; in compact, title clamps to 2 lines / meta to 1 with ellipsis, equal-height cards in a grid row). Archive stage also has **search**: filters the current folder view by title / chat name / note (substring, case-insensitive; cleared when leaving the Archive tab). Create/rename/delete folders, edit title and note, move todo↔archive (lands in target-tree All / unfiled; title/note/attachments kept; **Todo priority discarded**), unmark (discards title, note, attachments, priority, and folder). If the source chat is gone the entry stays and is marked stale; `↗` may fail with a toast.
 - Todo priority: Todo curation only — mutually exclusive Urgent / Important / None (segmented control on the card; also editable in the edit dialog). Viewing All or a folder sorts urgent → important → none; within a tier the prior relative order is kept. Archive has no priority field.
-- Library attachments: bind local `.md` files only from Todo / Archive curation (absolute path refs, no content copy); read-only in-panel preview, or reveal in Finder as a secondary action. If the file moves, the ref remains and preview shows unavailable.
+- Library attachments: bind local `.md` / `.html` from Todo / Archive curation (absolute path refs, no content copy); `.md` gets read-only in-panel preview, `.html` opens in the system default browser; Finder reveal as a secondary action. If the file moves, the ref remains and preview/open shows unavailable.
 - Settings (gear): four UI themes (Blueprint default, Phosphor, Ink, Brass); workspace aliases (known absolute path → short nickname, display-layer overlay in the panel, hover still shows the full path; notification/HUD copy does not resolve aliases in v1). Aliases live in machine prefs with sound; clearing the library does not delete them.
 - Server retention still applies to the session snapshot: unread kept; in-progress always visible; read + turn-ended ~30 minutes; pure idle ~15 minutes. Top-bar dots count all sessions (including waiting / idle / error not listed under Running). Card titles prefer the Agent sidebar chat name, else the first user-message summary; library list rows prefer the library title.
 
@@ -135,7 +135,7 @@ Flow:
 - The panel shows workspace paths and message snippets in the clear, with no redaction.
 - Do not expose the port to the internet or reverse-proxy it to other people.
 - Read-only scope: scanning `~/.cursor/projects` and `composerHeaders` never writes session content back.
-- Write exceptions: `hooks install` writes `~/.cursor/hooks.json` and `~/.cursor/hooks/`; runtime writes under `~/.cursor-watch/` (live, reminders, library, prefs, loop-ledger, shell-notify, …). Library attachments store path refs only and read from disk for preview; `.md` content is not copied into the watch home.
+- Write exceptions: `hooks install` writes `~/.cursor/hooks.json` and `~/.cursor/hooks/`; runtime writes under `~/.cursor-watch/` (live, reminders, library, prefs, loop-ledger, shell-notify, …). Library attachments store path refs only; `.md` is read for in-panel preview and `.html` is handed to the default browser — content is not copied into the watch home.
 - Open in Cursor / Open Chat only accepts workspace paths that already appear in the current scanned sessions, pending Reminders, or library entries.
 - There is no auth: the trust boundary is whoever can log into this Mac.
 
@@ -210,8 +210,9 @@ LIVE override (non-error): live → force `running`; turn ended or non-running �
 | `POST /api/library/entries` | mark / upsert an entry |
 | `PATCH /api/library/entries/:conversationId` | change mark / title / note / folder / Todo priority |
 | `DELETE /api/library/entries/:conversationId` | unmark |
-| `POST/DELETE …/attachments` | bind / unbind local `.md` paths |
-| `GET …/attachments/preview` | read-only attachment preview |
+| `POST/DELETE …/attachments` | bind / unbind local `.md` / `.html` paths |
+| `GET …/attachments/preview` | read-only `.md` attachment preview |
+| `POST …/attachments/open` | open `.html` attachment in the default browser |
 | `POST …/attachments/reveal` | reveal attachment in Finder |
 | `POST/PATCH/DELETE /api/library/folders[/:id]` | folder CRUD |
 | `GET/PUT /api/prefs` | read / partial-merge machine prefs |

@@ -1,5 +1,5 @@
 export const LIBRARY_TAB_KEY = "cursor-watch-library-tab";
-/** localStorage map: `${mark}:${folderId|""}` → boolean compact */
+/** localStorage map: `${mark}:${folderId|""}` → false=expanded; true or absent=compact (default) */
 export const LIBRARY_CARD_COMPACT_KEY = "cursor-watch.libraryCardCompact";
 
 /** @typedef {"reminder"|"todo"|"archive"} LibraryTab */
@@ -83,14 +83,14 @@ function saveLibraryCardCompactMap(map, storage) {
 }
 
 /**
- * Default expanded (false). Only true when explicitly stored.
+ * Default compact. Explicit `false` in prefs means expanded; `true` or absent means compact.
  * @param {LibraryMark} mark
  * @param {string|null|undefined} folderId
  * @param {unknown} [storage]
  */
 export function isLibraryCardCompact(mark, folderId, storage) {
   const map = loadLibraryCardCompactMap(storage);
-  return map[libraryCardCompactKey(mark, folderId)] === true;
+  return map[libraryCardCompactKey(mark, folderId)] !== false;
 }
 
 /**
@@ -102,8 +102,8 @@ export function isLibraryCardCompact(mark, folderId, storage) {
 export function setLibraryCardCompact(mark, folderId, compact, storage) {
   const map = loadLibraryCardCompactMap(storage);
   const key = libraryCardCompactKey(mark, folderId);
-  if (compact) map[key] = true;
-  else delete map[key];
+  if (compact) delete map[key];
+  else map[key] = false;
   saveLibraryCardCompactMap(map, storage);
 }
 
@@ -275,4 +275,39 @@ export function sortLibraryEntriesForMark(entries, mark) {
     .map((e, i) => ({ e, i }))
     .sort((a, b) => todoPriorityRank(a.e) - todoPriorityRank(b.e) || a.i - b.i)
     .map((x) => x.e);
+}
+
+/**
+ * @param {unknown} query
+ * @returns {string}
+ */
+export function normalizeArchiveSearchQuery(query) {
+  return String(query ?? "").trim();
+}
+
+/**
+ * Archive list search: title / chatName / note, case-insensitive substring.
+ * @param {{ title?: string, chatName?: string, note?: string }} entry
+ * @param {unknown} query
+ */
+export function archiveEntryMatchesQuery(entry, query) {
+  const q = normalizeArchiveSearchQuery(query);
+  if (!q) return true;
+  const needle = q.toLowerCase();
+  for (const field of [entry?.title, entry?.chatName, entry?.note]) {
+    if (typeof field === "string" && field.toLowerCase().includes(needle)) return true;
+  }
+  return false;
+}
+
+/**
+ * @template {{ title?: string, chatName?: string, note?: string }} T
+ * @param {T[]} entries
+ * @param {unknown} query
+ * @returns {T[]}
+ */
+export function filterEntriesByArchiveSearch(entries, query) {
+  const list = entries || [];
+  if (!normalizeArchiveSearchQuery(query)) return list;
+  return list.filter((e) => archiveEntryMatchesQuery(e, query));
 }

@@ -31,11 +31,13 @@ import {
   clearLibraryCardCompactForFolders,
   entryDisplayTitle,
   entriesInFolder,
+  filterEntriesByArchiveSearch,
   folderChatCount,
   folderSelectOptions,
   foldersForMark,
   isLibraryCardCompact,
   loadLibraryTab,
+  normalizeArchiveSearchQuery,
   saveLibraryTab,
   setLibraryCardCompact,
   sortLibraryEntriesForMark,
@@ -79,6 +81,8 @@ let ackAllInFlight = false;
 let activeTab = "reminder";
 /** @type {{ todo: string|null, archive: string|null }} */
 let libraryFolderFilter = { todo: null, archive: null };
+/** Session-only Archive list search query (cleared when leaving Archive tab). */
+let archiveSearchQuery = "";
 let markDialogContext = null;
 
 let toastTimer = null;
@@ -1115,7 +1119,11 @@ function refreshWorkspaceDisplays() {
 }
 
 function setActiveTab(tab) {
+  const prev = activeTab;
   activeTab = tab === "todo" || tab === "archive" ? tab : "reminder";
+  if (prev === "archive" && activeTab !== "archive") {
+    archiveSearchQuery = "";
+  }
   saveLibraryTab(activeTab);
   for (const btn of document.querySelectorAll(".library-tabs [role='tab']")) {
     const t = btn.getAttribute("data-tab");
@@ -1312,19 +1320,70 @@ function renderLibraryPane(mark) {
       ? "全部"
       : folders.find((f) => f.id === selectedFolder)?.name || "文件夹";
   const compact = isLibraryCardCompact(mark, selectedFolder);
+  const searchQ = mark === "archive" ? archiveSearchQuery : "";
+  const searchActive = Boolean(normalizeArchiveSearchQuery(searchQ));
   if (stageHead) {
+    const searchHtml =
+      mark === "archive"
+        ? `<div class="library-search">
+        <input
+          type="search"
+          id="archiveSearchInput"
+          class="library-search-input"
+          placeholder="搜索标题、备注…"
+          value="${escapeHtml(searchQ)}"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="搜索归档"
+        />
+        ${
+          searchActive
+            ? `<button type="button" class="library-search-clear" data-act="clear-search" title="清空搜索">清除</button>`
+            : ""
+        }
+      </div>`
+        : "";
     stageHead.innerHTML = `
-      <strong>${escapeHtml(selectedName)}</strong>
-      <button
-        type="button"
-        class="library-compact-toggle"
-        data-act="toggle-compact"
-        aria-pressed="${compact ? "true" : "false"}"
-        title="${compact ? "展开备注与附件" : "折叠备注与附件"}"
-      >${compact ? "展开" : "折叠"}</button>`;
+      <div class="library-stage-head-row">
+        <strong>${escapeHtml(selectedName)}</strong>
+        <div class="library-stage-head-tools">
+          ${searchHtml}
+          <button
+            type="button"
+            class="library-compact-toggle"
+            data-act="toggle-compact"
+            aria-pressed="${compact ? "true" : "false"}"
+            title="${compact ? "展开备注与附件" : "折叠备注与附件"}"
+          >${compact ? "展开" : "折叠"}</button>
+        </div>
+      </div>`;
     stageHead.querySelector('[data-act="toggle-compact"]')?.addEventListener("click", () => {
       setLibraryCardCompact(mark, selectedFolder, !compact);
       renderLibraryPane(mark);
+    });
+    const searchInput = stageHead.querySelector("#archiveSearchInput");
+    searchInput?.addEventListener("input", (ev) => {
+      const el = /** @type {HTMLInputElement} */ (ev.target);
+      archiveSearchQuery = el.value;
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      renderLibraryPane(mark);
+      const again = document.getElementById("archiveSearchInput");
+      if (again instanceof HTMLInputElement) {
+        again.focus();
+        try {
+          if (typeof start === "number" && typeof end === "number") {
+            again.setSelectionRange(start, end);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+    stageHead.querySelector('[data-act="clear-search"]')?.addEventListener("click", () => {
+      archiveSearchQuery = "";
+      renderLibraryPane(mark);
+      document.getElementById("archiveSearchInput")?.focus();
     });
   }
 
@@ -1387,7 +1446,7 @@ function renderLibraryPane(mark) {
     if (folder) bindLibraryFolderMenu(wrap, mark, folder);
   });
 
-  const entries = sortLibraryEntriesForMark(
+  const folderEntries = sortLibraryEntriesForMark(
     entriesInFolder(
       latestLibrary.entries || [],
       mark,
@@ -1396,8 +1455,22 @@ function renderLibraryPane(mark) {
     ),
     mark,
   );
-  if (!entries.length) {
+  const entries =
+    mark === "archive"
+      ? filterEntriesByArchiveSearch(folderEntries, searchQ)
+      : folderEntries;
+  if (!folderEntries.length) {
     listElLib.innerHTML = `<div class="library-empty"><strong>这里还没有条目</strong>在 Reminder 列表点「馆藏」标注；点左上角 + 建根文件夹，悬停目录右侧三点可建子文件夹。</div>`;
+    applyAttentionCols();
+    return;
+  }
+  if (!entries.length && searchActive) {
+    listElLib.innerHTML = `<div class="library-empty"><strong>没有匹配的归档</strong>试试其他关键字，或<button type="button" class="library-empty-action" data-act="clear-search">清空搜索</button></div>`;
+    listElLib.querySelector('[data-act="clear-search"]')?.addEventListener("click", () => {
+      archiveSearchQuery = "";
+      renderLibraryPane(mark);
+      document.getElementById("archiveSearchInput")?.focus();
+    });
     applyAttentionCols();
     return;
   }
@@ -1422,6 +1495,7 @@ function renderLibraryPane(mark) {
         : null;
     const folderHint = entryFolder ? ` · ${entryFolder.name}` : "";
     const place = `${placeInfo.text}${folderHint}`;
+    const placeTooltip = (place.trim() || placeInfo.titlePath || "").trim();
     const attachmentViews = Array.isArray(entry.attachmentViews)
       ? entry.attachmentViews
       : (entry.attachments || []).map((p) => ({ path: p, available: true }));
@@ -1430,7 +1504,7 @@ function renderLibraryPane(mark) {
       : `
       <div class="library-attachments">
         <div class="library-attachments-head">
-          <span>附件 MD</span>
+          <span>附件</span>
           <button type="button" data-act="attach-add">+ 绑定</button>
         </div>
         ${
@@ -1450,7 +1524,7 @@ function renderLibraryPane(mark) {
               </li>`,
                 )
                 .join("")}</ul>`
-            : `<p class="library-attachments-empty">尚未绑定本地 .md</p>`
+            : `<p class="library-attachments-empty">尚未绑定本地 .md / .html</p>`
         }
       </div>`;
     const noteHtml =
@@ -1473,12 +1547,14 @@ function renderLibraryPane(mark) {
         : "";
     card.innerHTML = `
       <div class="library-entry-head">
-        <div class="library-entry-title">${escapeHtml(title)}${
-          entry.stale ? `<span class="library-stale-badge">源会话不可用</span>` : ""
-        }</div>
+        <div class="library-entry-title" title="${escapeHtml(title)}"><span class="library-entry-title-text">${escapeHtml(
+          title,
+        )}</span>${entry.stale ? `<span class="library-stale-badge">源会话不可用</span>` : ""}</div>
         ${priorityHtml}
       </div>
-      <div class="library-entry-meta" title="${escapeHtml(placeInfo.titlePath)}">${escapeHtml(place.trim() || "—")}</div>
+      <div class="library-entry-meta" title="${escapeHtml(placeTooltip || placeInfo.titlePath)}">${escapeHtml(
+        place.trim() || "—",
+      )}</div>
       ${noteHtml}
       ${attachmentsHtml}
       <div class="library-entry-actions">
@@ -1782,30 +1858,37 @@ async function patchLibraryEntry(conversationId, patch) {
 }
 
 /**
+ * @param {string} filePath
+ */
+function isHtmlAttachmentPath(filePath) {
+  return /\.html$/i.test(String(filePath || ""));
+}
+
+/**
  * @returns {Promise<string[]>}
  */
-function pickMarkdownPaths() {
+function pickAttachmentPaths() {
   if (hasNativeShell()) {
     return new Promise((resolve) => {
-      const prev = window.__cwPickedMarkdown;
-      window.__cwPickedMarkdown = (paths) => {
-        window.__cwPickedMarkdown = prev;
+      const prev = window.__cwPickedAttachments;
+      window.__cwPickedAttachments = (paths) => {
+        window.__cwPickedAttachments = prev;
         resolve(Array.isArray(paths) ? paths.filter((p) => typeof p === "string") : []);
       };
       try {
         window.webkit.messageHandlers.cursorWatch.postMessage({
-          type: "pickMarkdownFiles",
+          type: "pickAttachmentFiles",
         });
       } catch (err) {
-        window.__cwPickedMarkdown = prev;
-        console.error("[cursor-watch] pickMarkdownFiles failed", err);
+        window.__cwPickedAttachments = prev;
+        console.error("[cursor-watch] pickAttachmentFiles failed", err);
         resolve([]);
       }
     });
   }
   return openLibraryPrompt({
-    title: "绑定 Markdown",
-    hint: "粘贴本机绝对路径，多个路径用换行分隔（App 内请用系统选文件）。",
+    title: "绑定附件",
+    hint: "粘贴本机绝对路径（.md 或 .html），多个路径用换行分隔（App 内请用系统选文件）。",
     label: "路径",
     defaultValue: "",
     okLabel: "绑定",
@@ -1819,7 +1902,7 @@ function pickMarkdownPaths() {
 }
 
 async function addLibraryAttachments(conversationId) {
-  const paths = await pickMarkdownPaths();
+  const paths = await pickAttachmentPaths();
   if (!paths.length) return;
   try {
     const res = await fetch(
@@ -1887,7 +1970,28 @@ async function revealLibraryAttachment(conversationId, filePath) {
   }
 }
 
+async function openAttachmentInBrowser(conversationId, filePath) {
+  try {
+    const res = await fetch(
+      `/api/library/entries/${encodeURIComponent(conversationId)}/attachments/open`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: filePath }),
+      },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) showToast(data.error || "无法用浏览器打开");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "无法用浏览器打开");
+  }
+}
+
 async function openAttachmentPreview(conversationId, filePath) {
+  if (isHtmlAttachmentPath(filePath)) {
+    await openAttachmentInBrowser(conversationId, filePath);
+    return;
+  }
   const dialog = document.getElementById("attachmentPreviewDialog");
   const titleEl = document.getElementById("attachmentPreviewTitle");
   const pathEl = document.getElementById("attachmentPreviewPath");

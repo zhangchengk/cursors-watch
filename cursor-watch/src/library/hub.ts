@@ -20,7 +20,7 @@ import type {
   PatchLibraryEntryInput,
   UpsertLibraryEntryInput,
 } from "./types.js";
-import { isReadableMarkdownFile } from "./attachments.js";
+import { isReadableAttachmentFile } from "./attachments.js";
 import type { AttachmentReject } from "./attachments.js";
 
 export type LibraryAttachmentView = { path: string; available: boolean };
@@ -57,7 +57,7 @@ export class LibraryHub {
         stale: isLibraryEntryStale(e, sess),
         attachmentViews: (e.attachments ?? []).map((p) => ({
           path: p,
-          available: isReadableMarkdownFile(p),
+          available: isReadableAttachmentFile(p),
         })),
       })),
     };

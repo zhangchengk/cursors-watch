@@ -7,7 +7,7 @@ Cursors Watch 监控本机多个 Cursor Agent 会话。面向本机使用 Cursor
 并列主职有两项：
 
 1. Reminder（提醒）：对话 Turn end 时通过系统通知或 HUD 打断，并在面板收件箱留下一条待确认项；下方「运行中」列出当前仍在跑的会话。
-2. Chat library（会话馆藏）：将有意义的 Agent Chat 标为 Todo（代办）或 Archive（归档）；可写标题与备注、绑定本机 `.md` 附件，并放入各自独立、任意深度的本机全局文件夹树，便于回看落地或本机当面宣讲。
+2. Chat library（会话馆藏）：将有意义的 Agent Chat 标为 Todo（代办）或 Archive（归档）；可写标题与备注、绑定本机 `.md` / `.html` 附件，并放入各自独立、任意深度的本机全局文件夹树，便于回看落地或本机当面宣讲。
 
 面板顶层三个 Tab：`Reminder`（启动默认）、`Todo`、`Archive`。一条 Chat 至多一个馆藏状态（无标注 / 代办 / 归档），与收件箱是否待确认无关；不会根据未读或 Turn end 自动打标。
 
@@ -85,14 +85,44 @@ npx cursor-watch hooks uninstall
 
 ## 面板说明
 
-- 顶栏显示 Cursors Watch；可调列表列数（默认 2；窄屏宽度小于 720px 时强制 1 列；Reminder 与 Todo / Archive **共用同一列数**）、状态色点计数、声音（默认静音）、设置、全屏（快捷键 `F`；App 内使用系统全屏）。
-- 三个 Tab：`Reminder`、`Todo`、`Archive`。上次选中的 Tab 会记在本机；冷启动仍默认 Reminder。
-- Reminder Tab：上方为「待确认 Reminder」（Turn end 后需人工确认的项；未装 hooks 时提示安装命令；可单条或全部确认，点击通知也可确认）。下方「运行中」只列出 LIVE / `running` / `subagent`。卡片可点「馆藏」标为 Todo / Archive（可填标题、备注、目标树文件夹；不含附件与优先级）；标注后不跳转 Tab。`↗` 打开工作区并尽量聚焦对应 Chat。
-- Todo / Archive Tab：左侧为文件夹树（顶项「全部」为本 Tab 全量），右侧为条目整理。列表标题旁可**折叠 / 展开**：折叠后隐藏备注与附件，仅留标题与底栏（按文件夹各自记忆，默认展开）。可创建、修改、删除文件夹；可改标题与备注；可在代办与归档间互迁（互迁后落到目标树「全部」/不进文件夹，标题、备注与附件保留，**Todo 优先级丢弃**）；可取消标注（丢弃标题、备注、附件、优先级与文件夹归属）。源会话不可用时条目仍保留并标为失效；`↗` 可能失败并以 toast 提示。
-- Todo 优先级：仅 Todo 整理面可设互斥三档「紧急 / 重要 / 无」（卡片三段控件；编辑对话框亦可改）。打开「全部」或某文件夹时，列表按紧急 → 重要 → 无排序，同档内保持原相对顺序。Archive 无此字段。
-- 馆藏附件：仅在 Todo / Archive 整理面绑定本机 `.md`（保存绝对路径引用，不拷贝文件内容）；可在面板内只读预览，或在 Finder 中显示。文件被挪走后引用仍保留，预览标为不可用。
-- 设置：外观四套主题（Blueprint 为默认，另有 Phosphor、Ink、Brass）；工作区别名（已知工程绝对路径映射为短名，仅面板展示层覆盖，悬停仍可看全路径；通知与 HUD 文案在 v1 不解析别名）。别名与声音等同属本机 prefs；清空馆藏不会删除别名。
-- 服务端保留策略作用于会话快照：未读一直保留；进行中始终可见；已读且本轮结束约 30 分钟；纯 idle 约 15 分钟。顶栏色点统计全部会话（含未在「运行中」列出的 waiting / idle / error）。卡片标题优先使用侧边栏 chat 名，否则使用首条用户消息摘要；馆藏列表主行优先使用馆藏标题。
+### 顶栏与 Tab
+
+- 顶栏：品牌名、列表列数（默认 2；视口宽度小于 720px 时强制 1 列；Reminder 与 Todo / Archive **共用同一 N**）、状态色点计数、声音（默认静音）、设置、全屏（`F`；App 内为系统全屏）。
+- 三个 Tab：`Reminder`、`Todo`、`Archive`。上次选中的 Tab 记在本机；冷启动仍默认 Reminder。
+
+### Reminder
+
+- 上方「待确认 Reminder」：Turn end 后需人工确认的项；未装 hooks 时提示安装命令；可单条或全部确认，点击系统通知也可确认。
+- 下方「运行中」：只列出 LIVE / `running` / `subagent`。
+- 卡片「馆藏」：标为 Todo / Archive（可填标题、备注、目标树文件夹；**不含**附件与优先级）；标注后留在 Reminder，不跳转 Tab。
+- `↗`：打开工作区并尽量聚焦对应 Chat。
+
+### Todo / Archive（馆藏整理）
+
+- 左侧文件夹树（顶项「全部」= 本 Tab 全量），右侧条目列表。
+- **折叠 / 展开**（按文件夹各自记忆，Todo 树与 Archive 树不共用）：折叠后隐藏备注与附件，仅留标题行与底栏；**默认折叠**。紧凑态下标题最多两行、灰色 meta 一行（超出省略，悬停可看全文），同列卡片等高。展开后备注/附件完整显示，不套限高。
+- **Archive 搜索**（仅 Archive）：列表标题行搜索框；在当前文件夹视图内按标题 / 会话名 / 备注做子串、大小写不敏感过滤；空白不过滤。换文件夹保留关键字；离开 Archive Tab 清空。侧栏目录数字仍为全量，不随搜索变化。Todo 无此搜索。
+- 可创建、改名、删除文件夹；可改馆藏标题与备注；可在代办 ↔ 归档间互迁（落到目标树「全部」/不进文件夹；标题、备注与附件保留，**Todo 优先级丢弃**）；可取消标注（丢弃标题、备注、附件、优先级与文件夹归属）。
+- 源会话不可用时条目仍保留并标为失效；附件与 Todo 优先级仍可管理；`↗` 可能失败并以 toast 提示。
+
+### Todo 优先级
+
+- 仅 Todo 整理面：互斥三档「紧急 / 重要 / 无」（卡片三段控件；编辑对话框亦可改）。新标 Todo 默认为「无」。
+- 打开「全部」或某文件夹时，按紧急 → 重要 → 无排序；同档内保持原相对顺序。Archive 无此字段。
+
+### 馆藏附件
+
+- 仅在 Todo / Archive 整理面绑定；一条目可挂多个，按添加顺序混排，绝对路径去重。
+- 允许扩展名：`.md`、`.html`（不含 `.htm`）；不强制落在该 Chat 工作区内；只存路径引用，不拷贝文件内容。
+- 「预览」按类型分流：`.md` → 面板内只读 Markdown；`.html` → 系统默认浏览器打开。次要动作可在 Finder 中显示。失败以 toast 提示。
+- 文件被挪走后引用仍保留，列表标为不可用。
+
+### 设置与其它展示
+
+- 外观四套主题（Blueprint 默认；另有 Phosphor、Ink、Brass）。
+- 工作区别名：已知工程绝对路径 → 短名，仅面板展示层覆盖，悬停仍可看全路径；通知与 HUD 文案在 v1 不解析别名。别名与声音等同属本机 prefs；清空馆藏不会删除别名。
+- 会话快照保留：未读一直保留；进行中始终可见；已读且本轮结束约 30 分钟；纯 idle 约 15 分钟。顶栏色点统计全部会话（含未在「运行中」列出的 waiting / idle / error）。
+- 卡片标题优先侧边栏 chat 名，否则首条用户消息摘要；馆藏列表主行优先馆藏标题。
 
 ## 架构概览
 
@@ -134,7 +164,7 @@ Cursors Watch.app（菜单栏壳）
 - 面板展示工作区路径与消息摘要的原文，不做脱敏。
 - 勿将端口暴露到公网，也勿通过反向代理供他人访问。
 - 只读范围：扫描 `~/.cursor/projects` 与 `composerHeaders` 时不写回会话内容。
-- 写盘例外：`hooks install` 写入 `~/.cursor/hooks.json`、`~/.cursor/hooks/`；运行时写入 `~/.cursor-watch/` 下的 live、reminders、library、prefs、loop-ledger、shell-notify 等。馆藏附件只存路径引用，预览时按路径读盘，不把 `.md` 内容拷贝进 watch home。
+- 写盘例外：`hooks install` 写入 `~/.cursor/hooks.json`、`~/.cursor/hooks/`；运行时写入 `~/.cursor-watch/` 下的 live、reminders、library、prefs、loop-ledger、shell-notify 等。馆藏附件只存路径引用，预览时按路径读盘（html 则交给默认浏览器），不把附件内容拷贝进 watch home。
 - 「在 Cursor 中打开」/ Open Chat 只接受当前已扫描会话、待确认 Reminder 或馆藏条目中出现过的工作区路径。
 - 服务本身无登录鉴权：信任边界等于能登录本机 Mac 的用户。
 
@@ -152,7 +182,7 @@ Cursors Watch.app（菜单栏壳）
 | `aggregator.ts` | 子会话并入父会话；过滤不可见会话 |
 | `infer/status.ts` | 由 transcript + shell 推断 `AgentStatus` |
 | `live-state.ts` / `reminders/*` | LIVE、Turn end Reminder、通知适配器 |
-| `library/*` | Chat library 状态、失效判定、附件路径与预览 |
+| `library/*` | Chat library 状态、失效判定、附件路径；`.md` 预览与 `.html` 默认浏览器打开 |
 | `prefs.ts` | 通知声音、工作区别名、面板主题 |
 | `loop-ledger/*` | Active `/loop` 哨兵账本（压制误报） |
 | `open-workspace.ts` | 校验路径后 `open -a Cursor <path>` |
@@ -209,8 +239,9 @@ LIVE 盖写（非 error）：live → 强制 `running`；turn ended 或非运行
 | `POST /api/library/entries` | 标注 / 更新条目 |
 | `PATCH /api/library/entries/:conversationId` | 改 mark / 标题 / 备注 / 文件夹 / Todo 优先级 |
 | `DELETE /api/library/entries/:conversationId` | 取消标注 |
-| `POST/DELETE …/attachments` | 绑定 / 解绑本机 `.md` 路径 |
-| `GET …/attachments/preview` | 只读预览附件内容 |
+| `POST/DELETE …/attachments` | 绑定 / 解绑本机 `.md` / `.html` 路径 |
+| `GET …/attachments/preview` | 只读预览 `.md` 附件内容 |
+| `POST …/attachments/open` | 用默认浏览器打开 `.html` 附件 |
 | `POST …/attachments/reveal` | Finder 显示附件 |
 | `POST/PATCH/DELETE /api/library/folders[/:id]` | 文件夹 CRUD |
 | `GET/PUT /api/prefs` | 读取 / 部分合并本机偏好 |

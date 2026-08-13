@@ -9,7 +9,11 @@ import websocket from "@fastify/websocket";
 import { BridgeHub } from "./bridge/hub.js";
 import { hooksStatus } from "./hooks-install.js";
 import { LibraryHub } from "./library/hub.js";
-import { isPathAttached, readAttachedMarkdown } from "./library/preview.js";
+import {
+  isPathAttached,
+  prepareAttachedHtmlOpen,
+  readAttachedMarkdown,
+} from "./library/preview.js";
 import { coerceTodoPriorityInput } from "./library/store.js";
 import type { LibraryMark } from "./library/types.js";
 import { openChatInCursor } from "./open-chat.js";
@@ -21,6 +25,21 @@ import type { SessionStore } from "./store.js";
 function revealInFinder(filePath: string): Promise<{ ok: true } | { ok: false; error: string }> {
   return new Promise((resolve) => {
     const child = spawn("open", ["-R", filePath], {
+      stdio: "ignore",
+      detached: true,
+    });
+    child.on("error", (err) => {
+      resolve({ ok: false, error: err.message });
+    });
+    child.unref();
+    resolve({ ok: true });
+  });
+}
+
+/** Open a local file with the macOS default application (browser for .html). */
+function openInDefaultApp(filePath: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("open", [filePath], {
       stdio: "ignore",
       detached: true,
     });
@@ -264,6 +283,25 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
       return reply.code(500).send({ ok: false, error: revealed.error });
     }
     return { ok: true };
+  });
+
+  app.post<{
+    Params: { conversationId: string };
+    Body: { path?: unknown };
+  }>("/api/library/entries/:conversationId/attachments/open", async (req, reply) => {
+    const filePath = typeof req.body?.path === "string" ? req.body.path : "";
+    if (!filePath.trim()) {
+      return reply.code(400).send({ ok: false, error: "path required" });
+    }
+    const prepared = prepareAttachedHtmlOpen(homeDir, req.params.conversationId, filePath);
+    if (!prepared.ok) {
+      return reply.code(prepared.status).send({ ok: false, error: prepared.error });
+    }
+    const opened = await openInDefaultApp(prepared.path);
+    if (!opened.ok) {
+      return reply.code(500).send({ ok: false, error: opened.error });
+    }
+    return { ok: true, path: prepared.path };
   });
 
   app.post<{

@@ -254,35 +254,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       toggleNativeFullscreen()
     } else if type == "queryFullscreen" {
       pushFullscreenStateToWeb()
-    } else if type == "pickMarkdownFiles" {
-      pickMarkdownFiles()
+    } else if type == "pickAttachmentFiles" || type == "pickMarkdownFiles" {
+      pickAttachmentFiles()
     }
   }
 
-  private func pickMarkdownFiles() {
+  private func pickAttachmentFiles() {
     DispatchQueue.main.async { [weak self] in
       guard let self else { return }
       let panel = NSOpenPanel()
       panel.canChooseFiles = true
       panel.canChooseDirectories = false
       panel.allowsMultipleSelection = true
-      panel.allowedFileTypes = ["md"]
-      panel.message = "选择要绑定的 Markdown 文件"
+      panel.allowedFileTypes = ["md", "html"]
+      panel.message = "选择要绑定的 .md 或 .html 文件"
       panel.begin { [weak self] response in
         guard let self else { return }
         var paths: [String] = []
         if response == .OK {
           paths = panel.urls.map { $0.path }
         }
-        self.pushPickedMarkdownPaths(paths)
+        self.pushPickedAttachmentPaths(paths)
       }
     }
   }
 
-  private func pushPickedMarkdownPaths(_ paths: [String]) {
+  private func pushPickedAttachmentPaths(_ paths: [String]) {
     let data = (try? JSONSerialization.data(withJSONObject: paths, options: [])) ?? Data("[]".utf8)
     let json = String(data: data, encoding: .utf8) ?? "[]"
-    let js = "window.__cwPickedMarkdown && window.__cwPickedMarkdown(\(json))"
+    let js = "window.__cwPickedAttachments && window.__cwPickedAttachments(\(json))"
     webView?.evaluateJavaScript(js, completionHandler: nil)
   }
 

@@ -19,7 +19,7 @@ export interface LibraryEntry {
   note?: string;
   /** Todo only: urgent | important; absent = none. Never on archive. */
   priority?: TodoPriority;
-  /** Ordered unique absolute paths to local .md files (Library attachments). */
+  /** Ordered unique absolute paths to local .md / .html files (Library attachments). */
   attachments?: string[];
   projectKey?: string;
   workspacePath?: string;

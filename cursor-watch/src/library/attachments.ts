@@ -7,11 +7,18 @@ export function isMarkdownPath(filePath: string): boolean {
   return path.extname(filePath).toLowerCase() === ".md";
 }
 
-/** True when path is an existing readable regular file ending in .md/.markdown. */
-export function isReadableMarkdownFile(filePath: string): boolean {
+export function isHtmlPath(filePath: string): boolean {
+  return path.extname(filePath).toLowerCase() === ".html";
+}
+
+/** Allowed Library attachment extensions: .md and .html (not .htm). */
+export function isAttachmentPath(filePath: string): boolean {
+  return isMarkdownPath(filePath) || isHtmlPath(filePath);
+}
+
+function isReadableRegularFile(filePath: string): boolean {
   if (!filePath || typeof filePath !== "string") return false;
   if (!path.isAbsolute(filePath)) return false;
-  if (!isMarkdownPath(filePath)) return false;
   try {
     const st = fs.statSync(filePath);
     if (!st.isFile()) return false;
@@ -20,6 +27,21 @@ export function isReadableMarkdownFile(filePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** True when path is an existing readable regular .md file. */
+export function isReadableMarkdownFile(filePath: string): boolean {
+  return isMarkdownPath(filePath) && isReadableRegularFile(filePath);
+}
+
+/** True when path is an existing readable regular .html file. */
+export function isReadableHtmlFile(filePath: string): boolean {
+  return isHtmlPath(filePath) && isReadableRegularFile(filePath);
+}
+
+/** True when path is an existing readable Library attachment (.md or .html). */
+export function isReadableAttachmentFile(filePath: string): boolean {
+  return isAttachmentPath(filePath) && isReadableRegularFile(filePath);
 }
 
 export function normalizeAttachmentPath(raw: string): string {
@@ -50,11 +72,11 @@ export function mergeAttachmentPaths(
       rejected.push({ path: p, reason: "path must be absolute" });
       continue;
     }
-    if (!isMarkdownPath(p)) {
-      rejected.push({ path: p, reason: "not a markdown file" });
+    if (!isAttachmentPath(p)) {
+      rejected.push({ path: p, reason: "not a .md or .html file" });
       continue;
     }
-    if (!isReadableMarkdownFile(p)) {
+    if (!isReadableAttachmentFile(p)) {
       rejected.push({ path: p, reason: "file missing or unreadable" });
       continue;
     }
