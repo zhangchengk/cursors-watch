@@ -27,6 +27,7 @@ import {
   shouldClearDeepLinkQuery,
 } from "./inbox.js";
 import {
+  applySiblingSortKeys,
   buildFolderTree,
   clearLibraryCardCompactForFolders,
   entryDisplayTitle,
@@ -37,6 +38,7 @@ import {
   foldersForMark,
   isLibraryCardCompact,
   loadLibraryTab,
+  moveIdAmongSiblings,
   normalizeArchiveSearchQuery,
   saveLibraryTab,
   setLibraryCardCompact,
@@ -81,6 +83,9 @@ let ackAllInFlight = false;
 let activeTab = "reminder";
 /** @type {{ todo: string|null, archive: string|null }} */
 let libraryFolderFilter = { todo: null, archive: null };
+/** Suppress folder select click after a completed drag. */
+let libraryFolderSuppressClick = false;
+
 /** Session-only Archive list search query (cleared when leaving Archive tab). */
 let archiveSearchQuery = "";
 let markDialogContext = null;
@@ -1275,6 +1280,145 @@ function closeLibraryFolderMenus(except) {
   }
 }
 
+function siblingFolderIds(folders, mark, parentId) {
+  const parent = parentId == null || parentId === "" ? null : parentId;
+  return [...folders]
+    .filter((f) => f.mark === mark && (f.parentId ?? null) === parent)
+    .sort((a, b) => a.sortKey - b.sortKey || a.name.localeCompare(b.name))
+    .map((f) => f.id);
+}
+
+function clearLibraryFolderDropHints(treeEl) {
+  treeEl
+    .querySelectorAll(".library-folder-row.is-drop-before, .library-folder-row.is-drop-after")
+    .forEach((el) => {
+      el.classList.remove("is-drop-before", "is-drop-after");
+    });
+}
+
+/**
+ * Pointer-based sibling reorder (HTML5 DnD is unreliable in WKWebView).
+ * Drag threshold separates click-to-select from reorder.
+ */
+function bindLibraryFolderDrag(treeEl, mark, folders) {
+  const THRESHOLD_PX = 6;
+
+  treeEl.querySelectorAll(".library-folder-row[data-folder-id]").forEach((row) => {
+    row.removeAttribute("draggable");
+
+    row.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      if (!(ev.target instanceof Element)) return;
+      if (ev.target.closest(".library-folder-more")) return;
+
+      const dragId = row.getAttribute("data-folder-id");
+      const dragParent = row.getAttribute("data-parent-id") || "";
+      if (!dragId) return;
+
+      const parentId = dragParent === "" ? null : dragParent;
+      const siblings = siblingFolderIds(folders, mark, parentId);
+      const fromIdx = siblings.indexOf(dragId);
+      /** @type {string|null} */
+      let beforeId =
+        fromIdx >= 0 && fromIdx < siblings.length - 1 ? siblings[fromIdx + 1] : null;
+
+      const startY = ev.clientY;
+      const startX = ev.clientX;
+      let dragging = false;
+
+      const siblingRows = () =>
+        [...treeEl.querySelectorAll(".library-folder-row[data-folder-id]")].filter(
+          (r) => (r.getAttribute("data-parent-id") || "") === dragParent,
+        );
+
+      const onMove = (e) => {
+        if (e.pointerId !== ev.pointerId) return;
+        const dy = e.clientY - startY;
+        const dx = e.clientX - startX;
+        if (!dragging) {
+          if (Math.hypot(dx, dy) < THRESHOLD_PX) return;
+          dragging = true;
+          libraryFolderSuppressClick = true;
+          row.classList.add("is-dragging");
+          closeLibraryFolderMenus();
+          try {
+            row.setPointerCapture(e.pointerId);
+          } catch {
+            /* ignore */
+          }
+        }
+        e.preventDefault();
+        clearLibraryFolderDropHints(treeEl);
+        const others = siblingRows().filter((r) => r.getAttribute("data-folder-id") !== dragId);
+        let nextBefore = /** @type {string|null} */ (null);
+        let marked = false;
+        for (const r of others) {
+          const rect = r.getBoundingClientRect();
+          if (e.clientY < rect.top + rect.height / 2) {
+            nextBefore = r.getAttribute("data-folder-id");
+            r.classList.add("is-drop-before");
+            marked = true;
+            break;
+          }
+        }
+        if (!marked && others.length) {
+          others[others.length - 1].classList.add("is-drop-after");
+          nextBefore = null;
+        }
+        beforeId = nextBefore;
+      };
+
+      const finish = (e) => {
+        if (e.pointerId !== ev.pointerId) return;
+        try {
+          if (row.hasPointerCapture?.(e.pointerId)) row.releasePointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+        window.removeEventListener("pointermove", onMove, true);
+        window.removeEventListener("pointerup", finish, true);
+        window.removeEventListener("pointercancel", finish, true);
+        clearLibraryFolderDropHints(treeEl);
+        row.classList.remove("is-dragging");
+        if (!dragging) return;
+        const nextOrder = moveIdAmongSiblings(siblings, dragId, beforeId);
+        queueMicrotask(() => {
+          libraryFolderSuppressClick = false;
+        });
+        if (nextOrder.join("\0") === siblings.join("\0")) return;
+        void commitLibraryFolderReorder(mark, nextOrder);
+      };
+
+      window.addEventListener("pointermove", onMove, true);
+      window.addEventListener("pointerup", finish, true);
+      window.addEventListener("pointercancel", finish, true);
+    });
+  });
+}
+
+async function commitLibraryFolderReorder(mark, orderedIds) {
+  latestLibrary = {
+    ...latestLibrary,
+    folders: applySiblingSortKeys(latestLibrary.folders || [], orderedIds),
+  };
+  renderLibraryPane(mark);
+  try {
+    const res = await fetch("/api/library/folders/reorder", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ orderedIds }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || data.message || "排序失败");
+      await fetchLibrary();
+    }
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "排序失败");
+    await fetchLibrary();
+  }
+}
+
 function bindLibraryFolderMenu(moreWrap, mark, folder) {
   const btn = moreWrap.querySelector(".library-folder-more-btn");
   const menu = moreWrap.querySelector(".library-folder-menu");
@@ -1393,8 +1537,8 @@ function renderLibraryPane(mark) {
         const sel = selectedFolder === n.folder.id ? " is-selected" : "";
         const count = folderChatCount(allEntries, mark, n.folder.id, folders);
         return `<div class="library-folder-node">
-          <div class="library-folder-row">
-            <button type="button" class="library-folder-btn${sel}" data-folder-id="${escapeHtml(n.folder.id)}"><span class="library-folder-label">${escapeHtml(n.folder.name)}</span><span class="library-folder-count" aria-label="${count} 个会话">${count}</span></button>
+          <div class="library-folder-row" data-folder-id="${escapeHtml(n.folder.id)}" data-parent-id="${escapeHtml(n.folder.parentId || "")}">
+            <div role="button" tabindex="0" class="library-folder-btn${sel}" data-folder-id="${escapeHtml(n.folder.id)}"><span class="library-folder-label">${escapeHtml(n.folder.name)}</span><span class="library-folder-count" aria-label="${count} 个会话">${count}</span></div>
             <div class="library-folder-more" data-folder-id="${escapeHtml(n.folder.id)}">
               <button type="button" class="library-folder-more-btn" aria-label="文件夹操作" title="文件夹操作">
                 <svg class="library-folder-more-glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -1432,11 +1576,18 @@ function renderLibraryPane(mark) {
   });
 
   treeEl.querySelectorAll(".library-folder-btn, .library-unfiled-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    const selectFolder = () => {
+      if (libraryFolderSuppressClick) return;
       const id = btn.getAttribute("data-folder-id");
       libraryFolderFilter[mark] = id ? id : null;
       closeLibraryFolderMenus();
       renderLibraryPane(mark);
+    };
+    btn.addEventListener("click", selectFolder);
+    btn.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      ev.preventDefault();
+      selectFolder();
     });
   });
 
@@ -1445,6 +1596,8 @@ function renderLibraryPane(mark) {
     const folder = folders.find((f) => f.id === id);
     if (folder) bindLibraryFolderMenu(wrap, mark, folder);
   });
+
+  bindLibraryFolderDrag(treeEl, mark, folders);
 
   const folderEntries = sortLibraryEntriesForMark(
     entriesInFolder(

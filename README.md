@@ -47,7 +47,7 @@ npm run package:app:install   # → /Applications/Cursors Watch.app
 - `.dmg` 产物：`macos/CursorWatch/dist/Cursors-Watch-<version>.dmg`。打开后将 Cursors Watch 拖入 Applications。未公证；首次打开若被拦截，在「系统设置 → 隐私与安全性」中允许即可。
 - 安装后从「应用程序」打开。「登录时打开」默认开启（可在菜单关闭）。菜单栏壳负责拉起 daemon 并打开面板。
 - Reminder：优先使用壳的系统通知；权限未开或投递失败时，改用壳内 HUD 浮层。
-- 若端口 `7423` 上已是本服务的旧 daemon，壳会接管并打开面板；仅当被其它程序占用时才会报错。
+- 菜单栏 App 启动时：若端口 `7423` 上已是本服务的 daemon，默认先停掉再拉起捆绑包内的进程，避免面板已更新而 API 仍是旧路由。需要沿用已有 daemon 时设置 `CURSOR_WATCH_ADOPT_DAEMON=1`。端口被其它程序占用时仍会报错。CLI `cursor-watch open` 仍会复用已在跑的本服务。
 - 打开 App / 执行 `cursor-watch open` 时会自检并尽量安装 hooks 与桥扩展。更新时再跑 `package:dmg` / `package:app:install` 覆盖安装。不含自动更新。
 - 完全磁盘访问：首次启动若尚未授权，壳会询问一次，并引导至「系统设置 → 隐私与安全性 → 完全磁盘访问权限」勾选 Cursors Watch（菜单栏右键也可再次打开）。授权后通常无需再对桌面、文稿等逐个允许。安装脚本使用本机固定签名证书（`~/.cursor-watch/codesign.keychain`），避免覆盖安装后因 ad-hoc 签名变化丢失权限并再次弹窗。
 
@@ -99,7 +99,7 @@ npx cursor-watch hooks uninstall
 
 ### Todo / Archive（馆藏整理）
 
-- 左侧文件夹树（顶项「全部」= 本 Tab 全量），右侧条目列表。
+- 左侧文件夹树（顶项「全部」= 本 Tab 全量，固定置顶、不可拖），右侧条目列表。同父（含根级）文件夹可上下拖拽改相对顺序，写入馆藏树（侧栏与文件夹下拉同一序）；拖拽不改父级。新建文件夹落在同级末尾。写入失败会 toast，并恢复为馆藏库中的顺序。
 - **折叠 / 展开**（按文件夹各自记忆，Todo 树与 Archive 树不共用）：折叠后隐藏备注与附件，仅留标题行与底栏；**默认折叠**。紧凑态下标题最多两行、灰色 meta 一行（超出省略，悬停可看全文），同列卡片等高。展开后备注/附件完整显示，不套限高。
 - **Archive 搜索**（仅 Archive）：列表标题行搜索框；在当前文件夹视图内按标题 / 会话名 / 备注做子串、大小写不敏感过滤；空白不过滤。换文件夹保留关键字；离开 Archive Tab 清空。侧栏目录数字仍为全量，不随搜索变化。Todo 无此搜索。
 - 可创建、改名、删除文件夹；可改馆藏标题与备注；可在代办 ↔ 归档间互迁（落到目标树「全部」/不进文件夹；标题、备注与附件保留，**Todo 优先级丢弃**）；可取消标注（丢弃标题、备注、附件、优先级与文件夹归属）。
@@ -153,7 +153,7 @@ Cursors Watch.app（菜单栏壳）
 
 流程要点：
 
-1. 打开 App（或执行 `cursor-watch open`）拉起或接管 daemon，自检 hooks 与桥扩展，再打开面板。
+1. 打开 App 拉起捆绑包 daemon（默认不接管旧进程）；或执行 `cursor-watch open` 拉起或复用已在跑的本服务。随后自检 hooks 与桥扩展，再打开面板。
 2. watcher 发现变更后，由 scan-worker 扫描并推断状态，写入内存 store。
 3. 面板通过 `GET /api/sessions` 与 `/ws` 近实时刷新；Reminder 与 library 另有 REST 与 WebSocket 推送；prefs 走 `/api/prefs`。
 4. 展示前聚合子会话、丢弃已不存在的工作区，并按分层保留策略裁剪。馆藏条目不因会话被 prune 而自动删除。
@@ -244,6 +244,7 @@ LIVE 盖写（非 error）：live → 强制 `running`；turn ended 或非运行
 | `POST …/attachments/open` | 用默认浏览器打开 `.html` 附件 |
 | `POST …/attachments/reveal` | Finder 显示附件 |
 | `POST/PATCH/DELETE /api/library/folders[/:id]` | 文件夹 CRUD |
+| `POST /api/library/folders/reorder` | 同级重排；body `{ orderedIds }` 须为完整兄弟集合 |
 | `GET/PUT /api/prefs` | 读取 / 部分合并本机偏好 |
 | `GET /api/hooks-status` | hooks 是否已安装 |
 | `POST /api/open-workspace` | body `{ path }` |

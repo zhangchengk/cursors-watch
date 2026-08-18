@@ -7,6 +7,7 @@ import {
   loadLibrary,
   patchEntry,
   patchFolder,
+  reorderSiblingFolders,
   upsertEntry,
   addAttachments,
   removeAttachment,
@@ -110,6 +111,12 @@ export class LibraryHub {
     const folder = patchFolder(this.homeDir, id, patch);
     if (folder) this.emit();
     return folder;
+  }
+
+  reorderSiblingFolders(orderedIds: string[]): LibraryFolder[] {
+    const folders = reorderSiblingFolders(this.homeDir, orderedIds);
+    this.emit();
+    return folders;
   }
 
   deleteFolder(id: string): boolean {

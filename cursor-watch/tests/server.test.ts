@@ -451,6 +451,32 @@ describe("buildServer", () => {
     expect((after.json() as { entries: unknown[] }).entries).toEqual([]);
   });
 
+  it("POST /api/library/folders/reorder rewrites sibling sortKey", async () => {
+    const a = await app.inject({
+      method: "POST",
+      url: "/api/library/folders",
+      payload: { mark: "todo", name: "A" },
+    });
+    const b = await app.inject({
+      method: "POST",
+      url: "/api/library/folders",
+      payload: { mark: "todo", name: "B" },
+    });
+    const idA = (a.json() as { folder: { id: string } }).folder.id;
+    const idB = (b.json() as { folder: { id: string } }).folder.id;
+    const reorder = await app.inject({
+      method: "POST",
+      url: "/api/library/folders/reorder",
+      payload: { orderedIds: [idB, idA] },
+    });
+    expect(reorder.statusCode).toBe(200);
+    const folders = (
+      reorder.json() as { folders: Array<{ id: string; sortKey: number }> }
+    ).folders;
+    expect(folders.map((f) => f.id)).toEqual([idB, idA]);
+    expect(folders.map((f) => f.sortKey)).toEqual([0, 1]);
+  });
+
   it("WS sends library on connect and after entry upsert", async () => {
     const port = listenPort(app);
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);

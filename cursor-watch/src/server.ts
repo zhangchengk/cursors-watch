@@ -356,6 +356,20 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
     },
   );
 
+  app.post<{ Body: { orderedIds?: unknown } }>("/api/library/folders/reorder", async (req, reply) => {
+    const raw = req.body?.orderedIds;
+    if (!Array.isArray(raw) || raw.length === 0 || raw.some((id) => typeof id !== "string")) {
+      return reply.code(400).send({ ok: false, error: "orderedIds required" });
+    }
+    try {
+      const folders = libraryHub.reorderSiblingFolders(raw as string[]);
+      return { ok: true, folders };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({ ok: false, error: msg });
+    }
+  });
+
   app.delete<{ Params: { id: string } }>("/api/library/folders/:id", async (req, reply) => {
     const ok = libraryHub.deleteFolder(req.params.id);
     if (!ok) return reply.code(404).send({ ok: false });

@@ -463,6 +463,56 @@ export function patchFolder(
   return next;
 }
 
+/**
+ * Rewrite sortKey (0..n-1) for an exact sibling set (same mark + parentId).
+ * @throws if orderedIds is empty, missing, mixed parent/mark, or not the full sibling set
+ */
+export function reorderSiblingFolders(home: string, orderedIds: string[]): LibraryFolder[] {
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    throw new Error("orderedIds required");
+  }
+  const unique = new Set(orderedIds);
+  if (unique.size !== orderedIds.length) {
+    throw new Error("orderedIds must be unique");
+  }
+
+  const state = loadLibrary(home);
+  const picked: LibraryFolder[] = [];
+  for (const id of orderedIds) {
+    const f = folderById(state, id);
+    if (!f) throw new Error(`folder not found: ${id}`);
+    picked.push(f);
+  }
+
+  const mark = picked[0]!.mark;
+  const parentId = picked[0]!.parentId ?? null;
+  for (const f of picked) {
+    if (f.mark !== mark || (f.parentId ?? null) !== parentId) {
+      throw new Error("orderedIds must be siblings");
+    }
+  }
+
+  const siblingIds = state.folders
+    .filter((f) => f.mark === mark && (f.parentId ?? null) === parentId)
+    .map((f) => f.id);
+  if (siblingIds.length !== orderedIds.length) {
+    throw new Error("orderedIds must be the full sibling set");
+  }
+  for (const id of siblingIds) {
+    if (!unique.has(id)) throw new Error("orderedIds must be the full sibling set");
+  }
+
+  const byId = new Map(state.folders.map((f, i) => [f.id, i]));
+  for (let i = 0; i < orderedIds.length; i++) {
+    const idx = byId.get(orderedIds[i]!);
+    if (idx === undefined) continue;
+    const prev = state.folders[idx]!;
+    state.folders[idx] = { ...prev, sortKey: i };
+  }
+  saveLibrary(home, state);
+  return orderedIds.map((id) => folderById(state, id)!);
+}
+
 export function deleteFolder(home: string, id: string): boolean {
   const state = loadLibrary(home);
   const folder = folderById(state, id);

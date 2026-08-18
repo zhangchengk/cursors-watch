@@ -9,6 +9,7 @@ import {
   deleteFolder,
   loadLibrary,
   patchEntry,
+  reorderSiblingFolders,
   upsertEntry,
   addAttachments,
   removeAttachment,
@@ -207,5 +208,30 @@ describe("library attachments", () => {
     addAttachments(home, "c1", [md]);
     expect(deleteEntry(home, "c1")).toBe(true);
     expect(loadLibrary(home).entries).toEqual([]);
+  });
+
+  it("reorderSiblingFolders rewrites sortKey for exact sibling set", () => {
+    const home = tempHome();
+    const a = createFolder(home, { mark: "todo", name: "A" });
+    const b = createFolder(home, { mark: "todo", name: "B" });
+    const c = createFolder(home, { mark: "todo", name: "C" });
+    createFolder(home, { mark: "todo", name: "Child", parentId: a.id });
+    createFolder(home, { mark: "archive", name: "Other" });
+    const updated = reorderSiblingFolders(home, [c.id, a.id, b.id]);
+    expect(updated.map((f) => f.id)).toEqual([c.id, a.id, b.id]);
+    expect(updated.map((f) => f.sortKey)).toEqual([0, 1, 2]);
+    const roots = loadLibrary(home)
+      .folders.filter((f) => f.mark === "todo" && f.parentId == null)
+      .sort((x, y) => x.sortKey - y.sortKey);
+    expect(roots.map((f) => f.id)).toEqual([c.id, a.id, b.id]);
+  });
+
+  it("reorderSiblingFolders rejects partial or mixed-parent lists", () => {
+    const home = tempHome();
+    const a = createFolder(home, { mark: "todo", name: "A" });
+    const b = createFolder(home, { mark: "todo", name: "B" });
+    const child = createFolder(home, { mark: "todo", name: "Child", parentId: a.id });
+    expect(() => reorderSiblingFolders(home, [b.id])).toThrow(/sibling/i);
+    expect(() => reorderSiblingFolders(home, [a.id, child.id])).toThrow(/sibling/i);
   });
 });

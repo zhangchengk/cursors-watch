@@ -314,13 +314,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
   private func startDaemon() {
     if isPortOpen() {
       if probeCursorWatchApi() {
-        adoptedExistingDaemon = true
-        log("adopting existing cursor-watch on port \(CWConfig.port)")
+        // Packaged .app must not keep a long-lived adopted daemon: UI resources
+        // refresh on reinstall while the old Node process keeps stale routes in memory
+        // (e.g. missing POST /api/library/folders/reorder → drag looks broken).
+        // Opt into adopt with CURSOR_WATCH_ADOPT_DAEMON=1 for local CLI workflows.
+        let adopt =
+          ProcessInfo.processInfo.environment["CURSOR_WATCH_ADOPT_DAEMON"] == "1"
+        if adopt {
+          adoptedExistingDaemon = true
+          log("adopting existing cursor-watch on port \(CWConfig.port)")
+          return
+        }
+        log("replacing existing cursor-watch on port \(CWConfig.port) with bundled daemon")
+        stopCursorWatchListening()
+        for _ in 0..<50 {
+          if !isPortOpen() { break }
+          Thread.sleep(forTimeInterval: 0.1)
+        }
+        if isPortOpen() {
+          foreignPortAtLaunch = true
+          log("port \(CWConfig.port) still open after stop; refusing to start")
+          return
+        }
+      } else {
+        foreignPortAtLaunch = true
+        log("port \(CWConfig.port) open but not cursor-watch API")
         return
       }
-      foreignPortAtLaunch = true
-      log("port \(CWConfig.port) open but not cursor-watch API")
-      return
     }
     guard let root = CWConfig.packageRoot else {
       log("CURSOR_WATCH_ROOT / bundled cursor-watch missing")
@@ -412,16 +432,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       daemon.waitUntilExit()
       self.daemon = nil
     }
+    stopCursorWatchListening()
+    ownsDaemon = false
+  }
+
+  /// Ask whatever is serving CURSOR_WATCH on our port to exit (CLI stop).
+  private func stopCursorWatchListening() {
     guard let root = CWConfig.packageRoot else { return }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    let node = bundledNode() ?? "node"
+    // `stop` can hang if the pid file is stale; bound wait then force-kill daemon.
     p.arguments = [
       "-lc",
-      "cd \(shellEscape(root.path)) && node --import tsx src/cli.ts stop || true",
+      "cd \(shellEscape(root.path)) && "
+        + "\(shellEscape(node)) --import tsx src/cli.ts stop & "
+        + "spid=$!; "
+        + "for i in 1 2 3 4 5 6 7 8 9 10; do "
+        + "kill -0 $spid 2>/dev/null || exit 0; sleep 0.2; done; "
+        + "kill $spid 2>/dev/null || true; "
+        + "pkill -f 'cli.ts daemon' 2>/dev/null || true",
     ]
     try? p.run()
     p.waitUntilExit()
-    ownsDaemon = false
   }
 
   private func bundledNode() -> String? {

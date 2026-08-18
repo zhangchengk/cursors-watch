@@ -311,3 +311,41 @@ export function filterEntriesByArchiveSearch(entries, query) {
   if (!normalizeArchiveSearchQuery(query)) return list;
   return list.filter((e) => archiveEntryMatchesQuery(e, query));
 }
+
+/**
+ * Reorder sibling ids: move `movedId` to sit immediately before `beforeId`.
+ * `beforeId` null = append to end. No-op if ids unknown or beforeId === movedId.
+ *
+ * @param {string[]} orderedIds
+ * @param {string} movedId
+ * @param {string|null} beforeId
+ * @returns {string[]}
+ */
+export function moveIdAmongSiblings(orderedIds, movedId, beforeId) {
+  const list = Array.isArray(orderedIds) ? orderedIds.slice() : [];
+  if (!list.includes(movedId)) return list;
+  if (beforeId === movedId) return list;
+  const rest = list.filter((id) => id !== movedId);
+  if (beforeId == null) {
+    rest.push(movedId);
+    return rest;
+  }
+  const idx = rest.indexOf(beforeId);
+  if (idx < 0) return list;
+  rest.splice(idx, 0, movedId);
+  return rest;
+}
+
+/**
+ * @template {{ id: string, sortKey: number }} T
+ * @param {T[]} folders
+ * @param {string[]} orderedIds
+ * @returns {T[]}
+ */
+export function applySiblingSortKeys(folders, orderedIds) {
+  const rank = new Map(orderedIds.map((id, i) => [id, i]));
+  return (folders || []).map((f) => {
+    if (!rank.has(f.id)) return f;
+    return { ...f, sortKey: /** @type {number} */ (rank.get(f.id)) };
+  });
+}

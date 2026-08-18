@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   archiveEntryMatchesQuery,
+  applySiblingSortKeys,
   buildFolderTree,
   clearLibraryCardCompactForFolders,
   entryDisplayTitle,
@@ -10,6 +11,7 @@ import {
   foldersForMark,
   isLibraryCardCompact,
   libraryCardCompactKey,
+  moveIdAmongSiblings,
   normalizeArchiveSearchQuery,
   setLibraryCardCompact,
   sortLibraryEntriesForMark,
@@ -186,5 +188,24 @@ describe("archive list search", () => {
       "2",
       "3",
     ]);
+  });
+
+  it("moveIdAmongSiblings places moved id before target or at end", () => {
+    expect(moveIdAmongSiblings(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
+    expect(moveIdAmongSiblings(["a", "b", "c"], "a", "c")).toEqual(["b", "a", "c"]);
+    expect(moveIdAmongSiblings(["a", "b", "c"], "a", null)).toEqual(["b", "c", "a"]);
+    expect(moveIdAmongSiblings(["a", "b", "c"], "b", "b")).toEqual(["a", "b", "c"]);
+  });
+
+  it("applySiblingSortKeys renumbers only listed siblings", () => {
+    const folders = [
+      { id: "a", mark: "todo", parentId: null, name: "A", sortKey: 0 },
+      { id: "b", mark: "todo", parentId: null, name: "B", sortKey: 1 },
+      { id: "x", mark: "todo", parentId: "a", name: "X", sortKey: 9 },
+    ];
+    const next = applySiblingSortKeys(folders, ["b", "a"]);
+    expect(next.find((f) => f.id === "b")?.sortKey).toBe(0);
+    expect(next.find((f) => f.id === "a")?.sortKey).toBe(1);
+    expect(next.find((f) => f.id === "x")?.sortKey).toBe(9);
   });
 });
