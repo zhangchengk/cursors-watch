@@ -1,5 +1,5 @@
 /**
- * Minimal Markdown → HTML for Attachment preview (headings, lists, code, paras).
+ * Minimal Markdown → HTML for Attachment preview (headings, lists, tables, code, paras).
  * Escapes HTML in text; not a full CommonMark engine.
  */
 export function renderMarkdown(src) {
@@ -68,6 +68,15 @@ export function renderMarkdown(src) {
       continue;
     }
 
+    const tableHtml = tryRenderTable(lines, i);
+    if (tableHtml) {
+      flushPara();
+      flushList();
+      html.push(tableHtml.html);
+      i = tableHtml.nextIndex;
+      continue;
+    }
+
     const ul = /^[-*+]\s+(.+)$/.exec(line);
     if (ul) {
       flushPara();
@@ -110,6 +119,72 @@ export function renderMarkdown(src) {
   flushPara();
   flushList();
   return html.join("\n") || "<p></p>";
+}
+
+/** GFM pipe table: header + delimiter (`---`) + optional body rows. */
+function tryRenderTable(lines, start) {
+  if (start + 1 >= lines.length) return null;
+  const headerLine = lines[start];
+  if (!headerLine.includes("|")) return null;
+  const aligns = parseDelimiterAlignments(lines[start + 1]);
+  if (!aligns) return null;
+  const headers = splitTableCells(headerLine);
+  if (!headers.length || headers.length !== aligns.length) return null;
+
+  const out = ["<table>", "<thead>", "<tr>"];
+  for (let c = 0; c < headers.length; c++) {
+    out.push(`<th${alignAttr(aligns[c])}>${inlineFormat(headers[c])}</th>`);
+  }
+  out.push("</tr>", "</thead>");
+
+  let i = start + 2;
+  const body = [];
+  while (i < lines.length) {
+    const rowLine = lines[i];
+    if (!rowLine.trim() || !rowLine.includes("|")) break;
+    body.push(splitTableCells(rowLine));
+    i += 1;
+  }
+
+  if (body.length) {
+    out.push("<tbody>");
+    for (const cells of body) {
+      out.push("<tr>");
+      for (let c = 0; c < headers.length; c++) {
+        out.push(`<td${alignAttr(aligns[c])}>${inlineFormat(cells[c] ?? "")}</td>`);
+      }
+      out.push("</tr>");
+    }
+    out.push("</tbody>");
+  }
+  out.push("</table>");
+  return { html: out.join(""), nextIndex: i };
+}
+
+function splitTableCells(line) {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").map((cell) => cell.trim());
+}
+
+function parseDelimiterAlignments(line) {
+  if (!line.includes("|")) return null;
+  const cells = splitTableCells(line);
+  if (!cells.length) return null;
+  const aligns = [];
+  for (const cell of cells) {
+    const token = cell.replace(/\s/g, "");
+    if (!/^:?-{3,}:?$/.test(token)) return null;
+    const left = token.startsWith(":");
+    const right = token.endsWith(":");
+    aligns.push(left && right ? "center" : right ? "right" : "left");
+  }
+  return aligns;
+}
+
+function alignAttr(align) {
+  return align && align !== "left" ? ` align="${align}"` : "";
 }
 
 function escapeHtml(s) {

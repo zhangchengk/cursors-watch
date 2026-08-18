@@ -2240,6 +2240,40 @@ body {
   margin: 0.4rem 0;
 }
 
+.md-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  font-size: 13px;
+}
+
+.md-preview th,
+.md-preview td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-preview th {
+  background: var(--bg-elevated);
+  font-weight: 600;
+}
+
+.md-preview th[align="center"],
+.md-preview td[align="center"] {
+  text-align: center;
+}
+
+.md-preview th[align="right"],
+.md-preview td[align="right"] {
+  text-align: right;
+}
+
+.md-preview tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
+}
+
 .md-preview pre {
   margin: 0.5rem 0;
   padding: 0.55rem 0.65rem;
