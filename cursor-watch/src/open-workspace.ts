@@ -98,24 +98,19 @@ function defaultSpawnCursor(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const newWindow = args[0] === "-n";
     const folder = newWindow ? args[1] : args[0];
-    const child =
-      process.platform === "darwin" && !newWindow
-        ? // Existing-folder focus path (legacy callers): activate Cursor with folder.
-          spawn("open", ["-a", "Cursor", folder ?? ""], {
-            detached: true,
-            stdio: "ignore",
-            env: process.env,
-          })
-        : // New window (or non-darwin): use Cursor CLI `-n <path>`.
-          spawn(
-            resolveCursorBin(),
-            newWindow ? ["-n", folder ?? ""] : args,
-            {
-              detached: true,
-              stdio: "ignore",
-              env: process.env,
-            },
-          );
+    // Always use the Cursor CLI (not `open -a Cursor <path>`).
+    // `open -a Cursor <folder>` often replaces the frontmost window's workspace
+    // instead of raising the existing window for that folder.
+    // CLI without `-n` tells the running instance to focus that folder's window.
+    const child = spawn(
+      resolveCursorBin(),
+      newWindow ? ["-n", folder ?? ""] : [folder ?? ""],
+      {
+        detached: true,
+        stdio: "ignore",
+        env: process.env,
+      },
+    );
 
     let settled = false;
     const finish = (err?: Error) => {

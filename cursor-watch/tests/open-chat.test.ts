@@ -49,7 +49,7 @@ describe("openChatInCursor", () => {
     if (!r.ok) expect(r.statusCode).toBe(404);
   });
 
-  it("skips -n when workspace already bridged; still activates and focuses", async () => {
+  it("raises existing workspace window (no -n) before activate and Chat focus", async () => {
     const openWorkspace = vi.fn().mockResolvedValue({ ok: true });
     const activateCursor = vi.fn().mockResolvedValue(undefined);
     const focus = vi.fn().mockResolvedValue({ ok: true });
@@ -69,8 +69,16 @@ describe("openChatInCursor", () => {
       }),
     });
     expect(r).toEqual({ ok: true, stage: "opened" });
-    expect(openWorkspace).not.toHaveBeenCalled();
+    expect(openWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspacePath: "/Users/u/A",
+        newWindow: false,
+      }),
+    );
     expect(activateCursor).toHaveBeenCalled();
+    expect(openWorkspace.mock.invocationCallOrder[0]).toBeLessThan(
+      activateCursor.mock.invocationCallOrder[0],
+    );
     await vi.waitFor(() => expect(onFocusResult).toHaveBeenCalledWith(
       expect.objectContaining({ ok: true }),
     ));
@@ -78,6 +86,35 @@ describe("openChatInCursor", () => {
       conversationId: "real",
       workspacePath: "/Users/u/A",
     });
+  });
+
+  it("still opens Chat when raising the existing window fails", async () => {
+    const openWorkspace = vi.fn().mockResolvedValue({
+      ok: false,
+      error: "spawn failed",
+    });
+    const activateCursor = vi.fn().mockResolvedValue(undefined);
+    const onFocusResult = vi.fn();
+    const r = await openChatInCursor({
+      conversationId: "real",
+      workspacePath: "/Users/u/A",
+      sessions: [sess({ id: "real", workspacePath: "/Users/u/A" })],
+      openWorkspace,
+      activateCursor,
+      onFocusResult,
+      bridge: bridgeStub({
+        hasClientForWorkspace: () => true,
+        clientIdsForWorkspace: () => ["c-old"],
+        onlineClientIds: () => ["c-old"],
+      }),
+    });
+    expect(r).toEqual({ ok: true, stage: "opened" });
+    expect(activateCursor).toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(onFocusResult).toHaveBeenCalledWith(
+        expect.objectContaining({ ok: true }),
+      ),
+    );
   });
 
   it("opens -n when workspace not bridged", async () => {

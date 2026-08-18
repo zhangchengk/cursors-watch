@@ -196,8 +196,9 @@ export async function focusChatInNewWindow(opts: {
  * Evidence: `cursor -n <already-open-folder>` does not create a second Cursor
  * window / bridge client — so "always new window then only focus new client"
  * never opens Chat. Strategy:
- * 1. If workspace already bridged → activate + focus that window (no `-n`).
- * 2. Else → `-n`, wait for client (new or any), then focus.
+ * 1. If workspace already bridged → `cursor <path>` (no `-n`) to raise that
+ *    window, then activate Cursor.app, then focus Chat.
+ * 2. Else → `-n`, activate, wait for client (new or any), then focus.
  */
 export async function openChatInCursor(
   opts: OpenChatDeps,
@@ -229,13 +230,14 @@ export async function openChatInCursor(
           opts.bridge.clientIdsForWorkspace(workspacePath),
       );
 
+  const wsArgs = {
+    workspacePath,
+    sessions: opts.sessions,
+    extraAllowedPaths: extraPaths,
+  };
+
   if (!alreadyOpen) {
-    const ws1 = await openWorkspace({
-      workspacePath,
-      sessions: opts.sessions,
-      extraAllowedPaths: extraPaths,
-      newWindow: true,
-    });
+    const ws1 = await openWorkspace({ ...wsArgs, newWindow: true });
     if (!ws1.ok) {
       return {
         ok: false,
@@ -244,6 +246,12 @@ export async function openChatInCursor(
         statusCode: ws1.statusCode,
       };
     }
+  } else {
+    // Raise the existing window for this folder *before* opening Chat.
+    // `open -a Cursor` (activateCursor) only brings the app's last window
+    // forward — not the workspace-matched one. Best-effort: Chat can still
+    // open via the bridge if this spawn fails.
+    await openWorkspace({ ...wsArgs, newWindow: false });
   }
 
   await activateCursor();
