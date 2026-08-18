@@ -67,4 +67,50 @@ describe("isLibraryEntryStale", () => {
   it("stale when no path and no session", () => {
     expect(isLibraryEntryStale(entry({ conversationId: "c1", mark: "todo" }), [])).toBe(true);
   });
+
+  it("not stale when stored transcriptPath is gone but the session is still in the store", () => {
+    const sessions = [
+      {
+        id: "c1",
+        workspacePath: "/ws",
+        projectKey: "p",
+        workspaceLabel: "ws",
+        status: "idle",
+        summary: "s",
+        currentAction: "",
+        lastActivityAt: 1,
+        subagentCount: 0,
+        subagentRunning: 0,
+        transcriptPath: "/new.jsonl",
+        recentMessages: [],
+      } satisfies SessionState,
+    ];
+    expect(
+      isLibraryEntryStale(
+        entry({
+          conversationId: "c1",
+          mark: "todo",
+          transcriptPath: "/old.jsonl",
+          workspacePath: "/ws",
+        }),
+        sessions,
+        (p) => p === "/new.jsonl",
+      ),
+    ).toBe(false);
+  });
+
+  it("not stale when transcript is at conventional path even if not in the running session list", () => {
+    const conversationId = "0da65b02-5652-48da-9563-12207f3c4ceb";
+    const workspacePath = "/Users/me/idea/datad";
+    const projectsDir = "/projects";
+    const jsonl = `${projectsDir}/Users-me-idea-datad/agent-transcripts/${conversationId}/${conversationId}.jsonl`;
+    expect(
+      isLibraryEntryStale(
+        entry({ conversationId, mark: "archive", workspacePath }),
+        [],
+        (p) => p === jsonl,
+        { projectsDir },
+      ),
+    ).toBe(false);
+  });
 });
