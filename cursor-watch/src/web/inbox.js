@@ -2,6 +2,8 @@
  * Pure helpers for reminder inbox + deep-link boot (tested via vitest).
  */
 
+import { displayWorkspacePlace } from "./workspace-display.js";
+
 /**
  * @param {string | URLSearchParams | { get?: (k: string) => string | null } | null | undefined} search
  * @returns {string | null}
@@ -197,4 +199,84 @@ export function resolveInboxCardAction(target, root) {
   }
 
   return null;
+}
+
+/**
+ * Distinct workspace paths among pending reminders (trimmed non-empty only).
+ * @param {Array<{ workspacePath?: string }>} reminders
+ * @returns {string[]}
+ */
+export function distinctReminderWorkspacePaths(reminders) {
+  const set = new Set();
+  for (const r of reminders || []) {
+    const path = typeof r.workspacePath === "string" ? r.workspacePath.trim() : "";
+    if (path) set.add(path);
+  }
+  return [...set];
+}
+
+/**
+ * @param {number} distinctPathCount
+ * @returns {boolean}
+ */
+export function shouldShowReminderWorkspaceFilter(distinctPathCount) {
+  return Number(distinctPathCount) >= 2;
+}
+
+/**
+ * Chip rows for Reminder workspace filter: label via Workspace alias overlay, sorted by label.
+ * @param {Array<{ workspacePath?: string, workspaceLabel?: string }>} reminders
+ * @param {Record<string, string>|null|undefined} aliases
+ * @returns {Array<{ path: string, label: string, titlePath: string }>}
+ */
+export function reminderWorkspaceFilterChips(reminders, aliases) {
+  const paths = distinctReminderWorkspacePaths(reminders);
+  const chips = paths.map((path) => {
+    const place = displayWorkspacePlace(path, "", aliases);
+    return { path, label: place.text, titlePath: place.titlePath || path };
+  });
+  chips.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  return chips;
+}
+
+/**
+ * Drop selected paths that are no longer in the available chip set.
+ * @param {Iterable<string>|null|undefined} selectedPaths
+ * @param {Iterable<string>|null|undefined} availablePaths
+ * @returns {string[]}
+ */
+export function pruneReminderWorkspaceFilterSelection(selectedPaths, availablePaths) {
+  const avail = new Set();
+  for (const p of availablePaths || []) {
+    const t = typeof p === "string" ? p.trim() : "";
+    if (t) avail.add(t);
+  }
+  const out = [];
+  for (const p of selectedPaths || []) {
+    const t = typeof p === "string" ? p.trim() : "";
+    if (t && avail.has(t)) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * OR filter by workspacePath. Empty selection = no filter (return all).
+ * Reminders without a path never match a non-empty selection.
+ * @template {{ workspacePath?: string }} T
+ * @param {T[]} reminders
+ * @param {Iterable<string>|null|undefined} selectedPaths
+ * @returns {T[]}
+ */
+export function filterRemindersByWorkspacePaths(reminders, selectedPaths) {
+  const selected = [];
+  for (const p of selectedPaths || []) {
+    const t = typeof p === "string" ? p.trim() : "";
+    if (t) selected.push(t);
+  }
+  if (!selected.length) return [...(reminders || [])];
+  const set = new Set(selected);
+  return (reminders || []).filter((r) => {
+    const path = typeof r.workspacePath === "string" ? r.workspacePath.trim() : "";
+    return Boolean(path) && set.has(path);
+  });
 }

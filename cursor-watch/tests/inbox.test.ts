@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   fetchRemindersPayload,
+  filterRemindersByWorkspacePaths,
   formatReminderEndedAt,
   hrefWithoutDeepLinkConversationId,
   inboxViewModel,
   parseDeepLinkConversationId,
+  pruneReminderWorkspaceFilterSelection,
   reminderAckPath,
   reminderDisplayMeta,
   reminderDisplayTitle,
+  reminderWorkspaceFilterChips,
   resolveInboxCardAction,
   sameConversationOrder,
   shouldClearDeepLinkQuery,
+  shouldShowReminderWorkspaceFilter,
   sortInboxReminders,
 } from "../src/web/inbox.js";
 
@@ -274,6 +278,79 @@ describe("resolveInboxCardAction", () => {
     };
     const root = { contains: () => false };
     expect(resolveInboxCardAction(orphanAck, root)).toBeNull();
+  });
+});
+
+describe("reminder workspace filter", () => {
+  it("shows filter only when distinct paths >= 2", () => {
+    expect(shouldShowReminderWorkspaceFilter(0)).toBe(false);
+    expect(shouldShowReminderWorkspaceFilter(1)).toBe(false);
+    expect(shouldShowReminderWorkspaceFilter(2)).toBe(true);
+  });
+
+  it("builds chips with alias labels sorted by display text", () => {
+    const reminders = [
+      { ...baseReminder("a", 1), workspacePath: "/z/proj" },
+      { ...baseReminder("b", 2), workspacePath: "/a/ops" },
+      { ...baseReminder("c", 3), workspacePath: "/a/ops" },
+      { ...baseReminder("d", 4), workspacePath: "" },
+    ];
+    const chips = reminderWorkspaceFilterChips(reminders, {
+      "/z/proj": "YonData",
+      "/a/ops": "OpsTools",
+    });
+    expect(chips.map((c) => ({ path: c.path, label: c.label }))).toEqual([
+      { path: "/a/ops", label: "OpsTools" },
+      { path: "/z/proj", label: "YonData" },
+    ]);
+  });
+
+  it("falls back to absolute path when no alias", () => {
+    const chips = reminderWorkspaceFilterChips(
+      [{ ...baseReminder("a", 1), workspacePath: "/Users/me/repo" }],
+      {},
+    );
+    expect(chips).toEqual([
+      { path: "/Users/me/repo", label: "/Users/me/repo", titlePath: "/Users/me/repo" },
+    ]);
+  });
+
+  it("filters by workspacePath OR; empty selection keeps all", () => {
+    const reminders = [
+      { ...baseReminder("a", 1), workspacePath: "/a" },
+      { ...baseReminder("b", 2), workspacePath: "/b" },
+      { ...baseReminder("c", 3), workspacePath: "/a" },
+      { ...baseReminder("d", 4) },
+    ];
+    expect(filterRemindersByWorkspacePaths(reminders, []).map((r) => r.conversationId)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+    expect(filterRemindersByWorkspacePaths(reminders, ["/a"]).map((r) => r.conversationId)).toEqual([
+      "a",
+      "c",
+    ]);
+    expect(
+      filterRemindersByWorkspacePaths(reminders, ["/a", "/b"]).map((r) => r.conversationId),
+    ).toEqual(["a", "b", "c"]);
+  });
+
+  it("hides pathless reminders once any workspace is selected", () => {
+    const reminders = [
+      { ...baseReminder("a", 1), workspacePath: "/a" },
+      { ...baseReminder("ghost", 2) },
+    ];
+    expect(filterRemindersByWorkspacePaths(reminders, ["/a"]).map((r) => r.conversationId)).toEqual([
+      "a",
+    ]);
+  });
+
+  it("prunes ghost selected paths", () => {
+    expect(pruneReminderWorkspaceFilterSelection(["/a", "/gone", ""], ["/a", "/b"])).toEqual([
+      "/a",
+    ]);
   });
 });
 

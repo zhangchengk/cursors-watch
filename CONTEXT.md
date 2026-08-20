@@ -105,8 +105,12 @@ _Avoid_: 把 hooks 安装/自动更新绑进首版必达、首版做成完整上
 _Avoid_: 首版就要求公证与分发流水线、把「非正式」理解成「不用 .app、继续只靠终端」、交付后仍依赖仓库内临时路径当日常入口、App 启动时挂载仓库热更当正式方案
 
 **Reminder acknowledgment（提醒确认）**:
-用户显式表示「看到了」：点面板上的「确认」/「全部确认」，或点击对应系统通知（深链）。任一即可消掉收件箱中的该条 Reminder。点卡片仅打开详情、不算确认。
-_Avoid_: 必须等 Cursor 未读清除、仅靠超时消失（作为唯一消法）、把打开抽屉/看详情当成确认
+用户显式表示「看到了」：点面板上的「确认」/「全部确认」，或点击对应系统通知（深链）。任一即可消掉收件箱中的该条 Reminder。点卡片仅打开详情、不算确认。「全部确认」的作用域是当前 **Reminder workspace filter** 下的可见 pending（无选中 = 全量 pending），不是未筛选的服务端全集。
+_Avoid_: 必须等 Cursor 未读清除、仅靠超时消失（作为唯一消法）、把打开抽屉/看详情当成确认、有工作区筛选时仍对隐藏条目批量确认
+
+**Reminder workspace filter（提醒工作区筛选）**:
+仅 **Reminder Tab → 待确认收件箱** 的二次过滤：在标题行（待确认与「全部确认」之间）以可多选 chip 列出当前 pending 中出现过的工作区；chip 文案遵循 Workspace alias（有别名用昵称，否则完整绝对路径）。选中一个或多个时按 **`workspacePath` 精确相等** 做 **OR 并集**；**零选中 = 不过滤（全部）**。Chip 集合只来自当前 pending 的 distinct `workspacePath`（无 path 的 Reminder 不进条；一旦有任一选中则这类条目不匹配而隐藏）。**仅当 distinct path ≥ 2 时显示筛选条**，否则整条隐藏（等同零选中）。Chip 按**展示文案 locale 排序**；区单行横向滚动；过长文案省略，悬停/title 仍出全文。收件箱计数与「全部确认」均跟筛选后结果；筛完为 0 则隐藏「全部确认」，并给空态与「清除筛选」（回到零选中）。pending 刷新时从选中集**剔掉已不在 pending 中的 path**；剔空则回到全部。选中态**仅面板会话内**，离开 Reminder Tab 或整页重载清空；不写入 prefs / 馆藏。不作用于同 Tab「运行中」，也不作用于 Todo / Archive。
+_Avoid_: 按展示文案/会话标题筛、无别名改用缩短名或 chatName 当 chip、AND 交集、把筛选写进 prefs、Chip 并进 prefs 全量别名或设置页候选并集、筛运行中/Todo/Archive、有筛选时计数仍显示全量 pending、仅 1 个工作区仍占标题行、多 chip 换行撑高收件箱、幽灵 path 留在选中集里导致「空选中却不是全部」、按条数或列表出现次序排 chip
 
 **Loop ledger（循环账本）**:
 按会话记录的 Active loop 账：在 `preToolUse` 发现疑似 `/loop` 哨兵命令时写入 `conversationId` 相关记录；daemon 以本机进程表匹配哨兵命令行为主（`AGENT_LOOP_TICK_*` / `AGENT_LOOP_WAKE_*`），若命令行/环境带有 conversationId 标记则优先用标记绑定。
@@ -117,8 +121,8 @@ _Avoid_: 仅靠 terminals 反查、工程级「有任一 loop 就压抑全部会
 _Avoid_: 每次结束都堆一条、未确认就静默到完全不再通知
 
 **Notification deep link（通知深链）**:
-点击系统通知的默认落点是打开/聚焦 cursor-watch 面板并选中该会话；「在 Cursor 打开工程」作为次要动作（不保证跳到具体 Chat）。
-_Avoid_: 仅打开工程当唯一落点、点击无任何导航
+点击系统通知的默认落点是打开/聚焦 cursor-watch 面板并选中该会话；「在 Cursor 打开工程」作为次要动作（不保证跳到具体 Chat）。若当时 Reminder workspace filter 会把目标条藏住，深链**优先**：清成零选中（显示全部）再选中该卡。
+_Avoid_: 仅打开工程当唯一落点、点击无任何导航、深链落到被筛隐藏的卡却不清筛选
 
 **Inbox-first panel（收件箱优先面板）**:
 仅适用于 **Reminder Tab** 内部：上方固定待确认 Reminder，其下再展示精简的运行中/最近会话。不再表示整个 App 只有收件箱这一种主叙事。

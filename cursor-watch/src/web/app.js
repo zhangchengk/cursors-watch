@@ -18,13 +18,17 @@ import {
 } from "./drawer-format.js";
 import {
   fetchRemindersPayload,
+  filterRemindersByWorkspacePaths,
   hrefWithoutDeepLinkConversationId,
   inboxViewModel,
   parseDeepLinkConversationId,
+  pruneReminderWorkspaceFilterSelection,
   reminderAckPath,
+  reminderWorkspaceFilterChips,
   resolveInboxCardAction,
   sameConversationOrder,
   shouldClearDeepLinkQuery,
+  shouldShowReminderWorkspaceFilter,
 } from "./inbox.js";
 import {
   applySiblingSortKeys,
@@ -60,6 +64,7 @@ const toastEl = document.getElementById("toast");
 const inboxBodyEl = document.getElementById("inboxBody");
 const inboxCountEl = document.getElementById("inboxCount");
 const ackAllBtn = document.getElementById("ackAllBtn");
+const inboxWorkspaceFilterEl = document.getElementById("inboxWorkspaceFilter");
 const soundToggleEl = document.getElementById("soundToggle");
 
 let prefs = loadPrefs();
@@ -68,6 +73,8 @@ let latestReminders = [];
 let latestLibrary = { folders: [], entries: [] };
 let hooksInstalled = true;
 let selectedConversationId = null;
+/** @type {string[]} session-only Reminder workspace filter selection (OR). Empty = all. */
+let reminderWorkspaceFilterSelected = [];
 let notificationSound = false;
 /** @type {Record<string, string>} */
 let workspaceAliases = {};
@@ -450,11 +457,73 @@ function reminderAsSession(r) {
   };
 }
 
-function syncAckAllBtn(model) {
+function syncAckAllBtn(model, visibleCount) {
   if (!ackAllBtn) return;
-  const show = model.mode === "list" && model.reminders.length > 0;
+  const n = typeof visibleCount === "number" ? visibleCount : model.reminders.length;
+  const show = model.mode === "list" && n > 0;
   ackAllBtn.hidden = !show;
   ackAllBtn.disabled = ackAllInFlight;
+}
+
+/**
+ * @param {Array<object>} pending
+ * @returns {{ chips: Array<{ path: string, label: string, titlePath: string }>, selected: string[], visible: Array<object> }}
+ */
+function resolveInboxWorkspaceFilter(pending) {
+  const chips = reminderWorkspaceFilterChips(pending, workspaceAliases);
+  const available = chips.map((c) => c.path);
+  reminderWorkspaceFilterSelected = pruneReminderWorkspaceFilterSelection(
+    reminderWorkspaceFilterSelected,
+    available,
+  );
+  if (!shouldShowReminderWorkspaceFilter(chips.length)) {
+    reminderWorkspaceFilterSelected = [];
+  }
+  const selected = reminderWorkspaceFilterSelected;
+  const visible = filterRemindersByWorkspacePaths(pending, selected);
+  return { chips, selected, visible };
+}
+
+function clearReminderWorkspaceFilter() {
+  reminderWorkspaceFilterSelected = [];
+}
+
+function renderInboxWorkspaceFilter(chips, selected) {
+  if (!inboxWorkspaceFilterEl) return;
+  const show = shouldShowReminderWorkspaceFilter(chips.length);
+  inboxWorkspaceFilterEl.hidden = !show;
+  if (!show) {
+    inboxWorkspaceFilterEl.innerHTML = "";
+    return;
+  }
+  const selectedSet = new Set(selected);
+  inboxWorkspaceFilterEl.innerHTML = chips
+    .map((chip) => {
+      const on = selectedSet.has(chip.path);
+      return `<button type="button" class="inbox-workspace-chip${on ? " is-selected" : ""}" data-workspace-path="${escapeHtml(chip.path)}" title="${escapeHtml(chip.titlePath)}" aria-pressed="${on ? "true" : "false"}">${escapeHtml(chip.label)}</button>`;
+    })
+    .join("");
+}
+
+function toggleReminderWorkspaceFilter(path) {
+  const key = typeof path === "string" ? path.trim() : "";
+  if (!key) return;
+  const set = new Set(reminderWorkspaceFilterSelected);
+  if (set.has(key)) set.delete(key);
+  else set.add(key);
+  reminderWorkspaceFilterSelected = [...set];
+  renderInbox(latestReminders);
+}
+
+function bindInboxWorkspaceFilter() {
+  if (!inboxWorkspaceFilterEl || inboxWorkspaceFilterEl.dataset.bound === "1") return;
+  inboxWorkspaceFilterEl.dataset.bound = "1";
+  inboxWorkspaceFilterEl.addEventListener("click", (ev) => {
+    const btn = ev.target?.closest?.(".inbox-workspace-chip");
+    if (!btn || !inboxWorkspaceFilterEl.contains(btn)) return;
+    ev.preventDefault();
+    toggleReminderWorkspaceFilter(btn.getAttribute("data-workspace-path") || "");
+  });
 }
 
 function renderInbox(reminders) {
@@ -466,11 +535,26 @@ function renderInbox(reminders) {
     hooksInstalled,
   });
 
+  const { chips, selected, visible } =
+    model.mode === "list"
+      ? resolveInboxWorkspaceFilter(model.reminders)
+      : { chips: [], selected: [], visible: [] };
+
+  if (model.mode !== "list") {
+    renderInboxWorkspaceFilter([], []);
+  } else {
+    renderInboxWorkspaceFilter(chips, selected);
+  }
+
   if (inboxCountEl) {
     inboxCountEl.textContent =
-      model.mode === "list" ? `${model.reminders.length}` : model.mode === "hooks-cta" ? "未安装" : "";
+      model.mode === "list"
+        ? `${visible.length}`
+        : model.mode === "hooks-cta"
+          ? "未安装"
+          : "";
   }
-  syncAckAllBtn(model);
+  syncAckAllBtn(model, visible.length);
 
   inboxBodyEl.innerHTML = "";
   inboxBodyEl.className = "inbox-body list-attention";
@@ -494,7 +578,19 @@ function renderInbox(reminders) {
     return;
   }
 
-  for (const r of model.reminders) {
+  if (selected.length > 0 && visible.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "inbox-empty";
+    empty.innerHTML = `当前工作区筛选无待确认 Reminder<button type="button" class="inbox-empty-action" data-act="clear-workspace-filter">清除筛选</button>`;
+    empty.querySelector('[data-act="clear-workspace-filter"]')?.addEventListener("click", () => {
+      clearReminderWorkspaceFilter();
+      renderInbox(latestReminders);
+    });
+    inboxBodyEl.appendChild(empty);
+    return;
+  }
+
+  for (const r of visible) {
     const session = reminderAsSession(r);
     inboxBodyEl.appendChild(
       mountCard(session, {
@@ -516,19 +612,27 @@ function syncInboxCardSurfaces() {
   });
   if (model.mode !== "list") return;
 
+  const { chips, selected, visible } = resolveInboxWorkspaceFilter(model.reminders);
+  renderInboxWorkspaceFilter(chips, selected);
+
+  if (selected.length > 0 && visible.length === 0) {
+    renderInbox(latestReminders);
+    return;
+  }
+
   const cards = [...inboxBodyEl.querySelectorAll(":scope > .card[data-conversation-id]")];
-  const reminderIds = model.reminders.map((r) => r.conversationId);
+  const reminderIds = visible.map((r) => r.conversationId);
   const cardIds = cards.map((c) => c.dataset.conversationId || "");
   if (!sameConversationOrder(reminderIds, cardIds)) {
     renderInbox(latestReminders);
     return;
   }
 
-  if (inboxCountEl) inboxCountEl.textContent = `${model.reminders.length}`;
-  syncAckAllBtn(model);
+  if (inboxCountEl) inboxCountEl.textContent = `${visible.length}`;
+  syncAckAllBtn(model, visible.length);
 
-  for (let i = 0; i < model.reminders.length; i++) {
-    const r = model.reminders[i];
+  for (let i = 0; i < visible.length; i++) {
+    const r = visible[i];
     const card = cards[i];
     if (!r || !card) continue;
     patchAttentionCardSurface(card, reminderAsSession(r), {
@@ -601,10 +705,16 @@ async function ackReminder(conversationId) {
 
 async function ackAllReminders() {
   if (ackAllInFlight) return;
-  const ids = latestReminders.map((r) => r.conversationId).filter(Boolean);
+  const model = inboxViewModel({
+    reminders: latestReminders,
+    hooksInstalled,
+  });
+  if (model.mode !== "list") return;
+  const { visible } = resolveInboxWorkspaceFilter(model.reminders);
+  const ids = visible.map((r) => r.conversationId).filter(Boolean);
   if (!ids.length) return;
   ackAllInFlight = true;
-  syncAckAllBtn(inboxViewModel({ reminders: latestReminders, hooksInstalled }));
+  syncAckAllBtn(model, ids.length);
   try {
     const settled = await Promise.all(
       ids.map(async (conversationId) => {
@@ -633,7 +743,15 @@ async function ackAllReminders() {
     else showToast("全部确认失败");
   } finally {
     ackAllInFlight = false;
-    syncAckAllBtn(inboxViewModel({ reminders: latestReminders, hooksInstalled }));
+    const after = inboxViewModel({
+      reminders: latestReminders,
+      hooksInstalled,
+    });
+    const visibleAfter =
+      after.mode === "list"
+        ? resolveInboxWorkspaceFilter(after.reminders).visible
+        : [];
+    syncAckAllBtn(after, visibleAfter.length);
   }
 }
 
@@ -641,6 +759,8 @@ async function handleDeepLink() {
   if (deepLinkHandled) return;
   const id = parseDeepLinkConversationId(location.search);
   if (!id) return;
+  clearReminderWorkspaceFilter();
+  setActiveTab("reminder");
   selectConversation(id);
   const ackOk = await ackReminder(id);
   if (!shouldClearDeepLinkQuery(ackOk)) return;
@@ -1118,6 +1238,7 @@ async function fetchDaemonPrefs() {
 
 function refreshWorkspaceDisplays() {
   render(latestSessions);
+  renderInbox(latestReminders);
   if (activeTab === "todo" || activeTab === "archive") {
     renderLibraryPane(activeTab);
   }
@@ -1128,6 +1249,9 @@ function setActiveTab(tab) {
   activeTab = tab === "todo" || tab === "archive" ? tab : "reminder";
   if (prev === "archive" && activeTab !== "archive") {
     archiveSearchQuery = "";
+  }
+  if (prev === "reminder" && activeTab !== "reminder") {
+    clearReminderWorkspaceFilter();
   }
   saveLibraryTab(activeTab);
   for (const btn of document.querySelectorAll(".library-tabs [role='tab']")) {
@@ -1140,6 +1264,8 @@ function setActiveTab(tab) {
   }
   if (activeTab === "todo" || activeTab === "archive") {
     renderLibraryPane(activeTab);
+  } else if (prev !== "reminder") {
+    renderInbox(latestReminders);
   }
 }
 
@@ -2255,6 +2381,7 @@ async function boot() {
   bindTabs();
   bindMarkDialog();
   bindInboxBodyActions();
+  bindInboxWorkspaceFilter();
   document.addEventListener("click", (ev) => {
     if (!ev.target.closest(".library-folder-more")) closeLibraryFolderMenus();
   });

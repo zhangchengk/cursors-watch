@@ -300,6 +300,10 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.inbox-header {
+  min-width: 0;
+}
+
 .inbox-header h2,
 .sessions-header h2 {
   margin: 0;
@@ -309,12 +313,63 @@ body {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.inbox-workspace-filter {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  padding: 0.1rem 0;
+}
+
+.inbox-workspace-chip {
+  appearance: none;
+  flex: 0 0 auto;
+  max-width: 11rem;
+  margin: 0;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, var(--text) 4%);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.inbox-workspace-chip.is-selected {
+  border-color: color-mix(in srgb, var(--signal) 55%, var(--border));
+  background: color-mix(in srgb, var(--signal) 22%, var(--bg-elevated));
+  color: var(--text);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .inbox-workspace-chip:hover {
+    border-color: color-mix(in srgb, var(--signal) 40%, var(--border));
+    color: var(--text);
+  }
 }
 
 .inbox-header-actions {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  flex-shrink: 0;
 }
 
 .inbox-count {
@@ -376,6 +431,25 @@ body {
   padding: 0.65rem 0.15rem 0.85rem;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.inbox-empty-action {
+  appearance: none;
+  margin: 0 0 0 0.15rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--signal);
+  font: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inbox-empty-action:hover {
+  color: var(--text);
 }
 
 .inbox-cta code {
