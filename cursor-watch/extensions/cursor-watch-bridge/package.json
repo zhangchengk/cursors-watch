@@ -2,7 +2,7 @@
   "name": "cursor-watch-bridge",
   "displayName": "Cursors Watch Bridge",
   "description": "Focus local Agent chat by conversationId for Cursors Watch",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "cursor-watch",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
@@ -21,6 +21,14 @@
       {
         "command": "cursor-watch.bridge.focusCanvasOnly",
         "title": "Cursors Watch Bridge: Focus via canvas.openAgentByConversationId only"
+      },
+      {
+        "command": "cursor-watch.bridge.dumpDeleteCommands",
+        "title": "Cursors Watch Bridge: Dump delete/remove-related commands"
+      },
+      {
+        "command": "cursor-watch.bridge.deleteById",
+        "title": "Cursors Watch Bridge: Probe delete chat by conversationId"
       }
     ]
   },

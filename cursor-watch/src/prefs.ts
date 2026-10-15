@@ -4,10 +4,19 @@ import { prefsFile, stateDir } from "./constants.js";
 export const UI_THEMES = ["phosphor", "blueprint", "ink", "brass"] as const;
 export type UiTheme = (typeof UI_THEMES)[number];
 
+export interface LibraryHeaderRefreshLast {
+  at: number;
+  refreshed: number;
+  skippedNoHeader: number;
+  failed: number;
+}
+
 export interface WatchPrefs {
   notificationSound: boolean;
   workspaceAliases: Record<string, string>;
   uiTheme: UiTheme;
+  /** Written only by library header refresh apply; not patchable via PUT. */
+  libraryHeaderRefreshLast?: LibraryHeaderRefreshLast;
 }
 
 export const DEFAULT_WATCH_PREFS: WatchPrefs = {
@@ -129,14 +138,33 @@ export function applyWatchPrefsPatch(
   };
 }
 
+function coerceLibraryHeaderRefreshLast(raw: unknown): LibraryHeaderRefreshLast | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.at !== "number" || !Number.isFinite(o.at)) return undefined;
+  if (typeof o.refreshed !== "number" || !Number.isFinite(o.refreshed)) return undefined;
+  if (typeof o.skippedNoHeader !== "number" || !Number.isFinite(o.skippedNoHeader)) {
+    return undefined;
+  }
+  if (typeof o.failed !== "number" || !Number.isFinite(o.failed)) return undefined;
+  return {
+    at: o.at,
+    refreshed: o.refreshed,
+    skippedNoHeader: o.skippedNoHeader,
+    failed: o.failed,
+  };
+}
+
 function coerceLoadedPrefs(raw: unknown): WatchPrefs | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   if (typeof o.notificationSound !== "boolean") return null;
+  const last = coerceLibraryHeaderRefreshLast(o.libraryHeaderRefreshLast);
   return {
     notificationSound: o.notificationSound,
     workspaceAliases: normalizeWorkspaceAliases(o.workspaceAliases),
     uiTheme: normalizeUiTheme(o.uiTheme),
+    ...(last ? { libraryHeaderRefreshLast: last } : {}),
   };
 }
 
@@ -165,11 +193,22 @@ export function saveWatchPrefs(home: string, prefs: WatchPrefs): void {
   ensureStateDir(home);
   const file = prefsFile(home);
   const tmp = `${file}.${process.pid}.tmp`;
+  const existing = loadWatchPrefs(home);
   const next: WatchPrefs = {
     notificationSound: prefs.notificationSound,
     workspaceAliases: normalizeWorkspaceAliases(prefs.workspaceAliases),
     uiTheme: normalizeUiTheme(prefs.uiTheme),
+    libraryHeaderRefreshLast:
+      prefs.libraryHeaderRefreshLast ?? existing.libraryHeaderRefreshLast,
   };
   fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   fs.renameSync(tmp, file);
+}
+
+export function saveLibraryHeaderRefreshLast(
+  home: string,
+  summary: LibraryHeaderRefreshLast,
+): void {
+  const current = loadWatchPrefs(home);
+  saveWatchPrefs(home, { ...current, libraryHeaderRefreshLast: summary });
 }

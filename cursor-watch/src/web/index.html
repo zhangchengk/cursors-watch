@@ -230,6 +230,35 @@
             还没有已知工程。打开 Cursor 会话或在 Reminder 里标注后，路径会出现在这里。
           </p>
         </section>
+        <section class="settings-section" aria-labelledby="settingsMaintenanceHeading">
+          <h4 id="settingsMaintenanceHeading">维护</h4>
+          <p class="library-dialog-hint">
+            馆藏时间刷新：在 <strong>完全退出 Cursor</strong> 后，把 Todo / Archive 对应会话在
+            Cursor 列表里的「最近活跃」时间统一更新为当前时刻，便于再用
+            <code>Developer: Delete Old Chats…</code> 按天清理时保留馆藏（Cursor 按
+            <code>lastUpdatedAt ?? createdAt</code> 筛旧会话）。Watch 不会替你删会话；请先自行备份
+            <code>state.vscdb</code>。
+          </p>
+          <p id="settingsLibraryRefreshLast" class="settings-maintenance-last" hidden></p>
+          <p id="settingsLibraryRefreshResult" class="settings-maintenance-result" hidden></p>
+          <ul
+            id="settingsLibraryRefreshSamples"
+            class="settings-maintenance-samples"
+            hidden
+            aria-label="预览抽样"
+          ></ul>
+          <div class="settings-maintenance-actions">
+            <button type="button" id="settingsLibraryRefreshPreview">预览</button>
+            <button type="button" id="settingsLibraryRefreshApply">执行刷新</button>
+          </div>
+          <p id="settingsLibraryRefreshFollowup" class="settings-maintenance-followup" hidden>
+            刷新完成后：在 Cursor 里 <strong>Developer: Reload Window</strong>，再运行
+            <strong>Developer: Delete Old Chats…</strong> 选择天数。
+          </p>
+          <p class="settings-maintenance-muted">
+            会话清理（Chat purge）：按 composerId 自动删除探针未通过，暂不支持；请用手动删除或 Delete Old Chats。
+          </p>
+        </section>
         <div class="library-dialog-actions">
           <button type="button" id="settingsCancel">取消</button>
           <button type="submit" id="settingsSave">保存</button>

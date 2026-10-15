@@ -146,6 +146,29 @@ async function main(): Promise<void> {
     console.log(url);
     return;
   }
+  if (cmd === "library") {
+    const sub = process.argv[3];
+    if (sub === "refresh-headers") {
+      const dryRun = process.argv.includes("--dry-run");
+      const { loadLibrary } = await import("./library/store.js");
+      const { runLibraryHeaderRefresh } = await import("./library-header-refresh.js");
+      const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+      if (!home) {
+        console.error("HOME not set");
+        process.exit(1);
+      }
+      const entries = loadLibrary(home).entries;
+      const result = runLibraryHeaderRefresh({ home, entries, dryRun });
+      if (!result.ok) {
+        console.error(JSON.stringify(result, null, 2));
+        process.exit(result.statusCode === 409 ? 2 : 1);
+      }
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.error("usage: cursor-watch library refresh-headers [--dry-run]");
+    process.exit(1);
+  }
   if (cmd === "hooks") {
     const sub = process.argv[3];
     const { installHooks, uninstallHooks, hooksStatus } = await import("./hooks-install.js");
@@ -165,7 +188,7 @@ async function main(): Promise<void> {
     console.error("usage: cursor-watch hooks <install|uninstall|status>");
     process.exit(1);
   }
-  console.error("usage: cursor-watch <open|status|stop|daemon|hooks>");
+  console.error("usage: cursor-watch <open|status|stop|daemon|hooks|library>");
   process.exit(1);
 }
 

@@ -507,6 +507,53 @@ describe("buildServer", () => {
     await app.inject({ method: "DELETE", url: "/api/library/entries/lib-ws" });
     ws.close();
   });
+
+  it("POST /api/maintenance/library-header-refresh dryRun returns preview counts", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/api/library/entries",
+      payload: { conversationId: "lib-maint-1", mark: "todo", title: "T" },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/maintenance/library-header-refresh",
+      payload: { dryRun: true },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(body.dryRun).toBe(true);
+    expect(body.batchTs).toBeNull();
+    expect(body.stateDbFound).toBe(false);
+    expect(body.targetCount).toBeGreaterThanOrEqual(1);
+    expect(body.skippedNoHeader).toBe(0);
+  });
+
+  it("POST /api/maintenance/library-header-refresh apply returns 409 when Cursor running", async () => {
+    const store = new SessionStore();
+    const home = tempHome();
+    const libraryHub = new LibraryHub(home);
+    const app409 = await buildServer(store, {
+      homeDir: home,
+      libraryHub,
+      libraryHeaderRefresh: { checkCursorRunning: () => true },
+    });
+    await app409.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const res = await app409.inject({
+        method: "POST",
+        url: "/api/maintenance/library-header-refresh",
+        payload: { dryRun: false },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({
+        ok: false,
+        error: "quit Cursor completely before refreshing composer headers",
+      });
+    } finally {
+      await app409.close();
+    }
+  });
 });
 
 describe("POST /api/open-chat", () => {

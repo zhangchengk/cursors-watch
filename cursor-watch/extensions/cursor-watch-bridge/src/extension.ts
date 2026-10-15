@@ -4,10 +4,16 @@ import {
   startBridgeClient,
 } from "./bridge-client";
 import {
+  AGE_BATCH_DELETE_COMMANDS,
+  listDeleteInterestingCommands,
+  probeDeleteByConversationId,
+} from "./delete-probe";
+import {
   listInterestingCommands,
   probeCanvasOpenOnly,
   probeFocusByConversationId,
 } from "./focus-probe";
+import { maybeRunSpikeDeleteFromFile } from "./spike-delete-file";
 import { classifySpikeVerdict } from "./spike-verdict";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -21,9 +27,26 @@ export function activate(context: vscode.ExtensionContext) {
     executeFocus: focusLocalAgentByConversationId,
   });
 
+  void maybeRunSpikeDeleteFromFile({
+    log: (line) => out.appendLine(line),
+    executeCommand: (c, ...a) => vscode.commands.executeCommand(c, ...a),
+    getCommands: (f) => vscode.commands.getCommands(f),
+  }).then((ran) => {
+    if (ran) out.show(true);
+  });
+
   const confirmVisualFocus = async () => {
     const pick = await vscode.window.showInformationMessage(
       "Did the correct Agent chat focus?",
+      "Yes",
+      "No",
+    );
+    return pick === "Yes";
+  };
+
+  const confirmVisualDeleted = async () => {
+    const pick = await vscode.window.showInformationMessage(
+      "Did that Agent chat disappear from the sidebar?",
       "Yes",
       "No",
     );
@@ -71,6 +94,47 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand("cursor-watch.bridge.focusCanvasOnly", async () => {
       await runProbe("Focus (canvas only)", probeCanvasOpenOnly);
+    }),
+
+    vscode.commands.registerCommand(
+      "cursor-watch.bridge.dumpDeleteCommands",
+      async () => {
+        const all = await vscode.commands.getCommands(false);
+        const ids = listDeleteInterestingCommands(all);
+        out.clear();
+        out.appendLine(`Delete/remove/purge/composer-ish commands (${ids.length}):`);
+        for (const id of ids) out.appendLine(id);
+        out.appendLine("");
+        out.appendLine("Age-batch (not a per-id pass):");
+        for (const id of AGE_BATCH_DELETE_COMMANDS) {
+          out.appendLine(`  ${id}: ${all.includes(id) ? "PRESENT" : "absent"}`);
+        }
+        out.show(true);
+        void vscode.window.showInformationMessage(
+          `Dumped ${ids.length} delete-related commands to Output`,
+        );
+      },
+    ),
+
+    vscode.commands.registerCommand("cursor-watch.bridge.deleteById", async () => {
+      const conversationId = await vscode.window.showInputBox({
+        prompt:
+          "Delete probe — paste unmarked conversationId (UUID). Do NOT use Todo/Archive ids.",
+        placeHolder: "e.g. 4e1edc86-6661-4e22-a253-d493dc0886e3",
+      });
+      if (!conversationId?.trim()) return;
+
+      const attempts = await probeDeleteByConversationId(conversationId.trim(), {
+        executeCommand: (c, ...a) => vscode.commands.executeCommand(c, ...a),
+        getCommands: (f) => vscode.commands.getCommands(f),
+        log: (line) => out.appendLine(line),
+        confirmVisualDeleted,
+      });
+      const verdict = classifySpikeVerdict(attempts);
+      out.appendLine(`Delete spike verdict: ${verdict}`);
+      out.appendLine(JSON.stringify(attempts, null, 2));
+      out.show(true);
+      void vscode.window.showInformationMessage(`Delete spike verdict: ${verdict}`);
     }),
   );
 }

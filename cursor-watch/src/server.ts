@@ -18,6 +18,7 @@ import { coerceTodoPriorityInput } from "./library/store.js";
 import type { LibraryMark } from "./library/types.js";
 import { openChatInCursor } from "./open-chat.js";
 import { openWorkspaceInCursor } from "./open-workspace.js";
+import { runLibraryHeaderRefresh } from "./library-header-refresh.js";
 import { loadWatchPrefs, saveWatchPrefs, applyWatchPrefsPatch } from "./prefs.js";
 import { ReminderHub } from "./reminders/hub.js";
 import type { SessionStore } from "./store.js";
@@ -58,6 +59,11 @@ export type BuildServerOptions = {
   reminderHub?: ReminderHub;
   libraryHub?: LibraryHub;
   bridgeHub?: BridgeHub;
+  /** Test hooks for library header refresh route. */
+  libraryHeaderRefresh?: {
+    checkCursorRunning?: () => boolean;
+    resolveDbPath?: (home: string) => string | null;
+  };
 };
 
 function isLibraryMark(v: unknown): v is LibraryMark {
@@ -107,6 +113,25 @@ export async function buildServer(store: SessionStore, opts?: BuildServerOptions
     saveWatchPrefs(homeDir, patched.prefs);
     return patched.prefs;
   });
+
+  app.post<{ Body: { dryRun?: unknown } }>(
+    "/api/maintenance/library-header-refresh",
+    async (req, reply) => {
+      const dryRun = req.body?.dryRun === true;
+      const refreshOpts = opts?.libraryHeaderRefresh;
+      const result = runLibraryHeaderRefresh({
+        home: homeDir,
+        entries: libraryHub.rawState().entries,
+        dryRun,
+        checkCursorRunning: refreshOpts?.checkCursorRunning,
+        resolveDbPath: refreshOpts?.resolveDbPath,
+      });
+      if (!result.ok) {
+        return reply.code(result.statusCode).send(result);
+      }
+      return result;
+    },
+  );
 
   app.post<{ Params: { conversationId: string } }>(
     "/api/reminders/:conversationId/ack",

@@ -2084,6 +2084,58 @@ body {
   font-weight: 650;
 }
 
+.settings-maintenance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.settings-maintenance-actions button {
+  font: inherit;
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--cw-border, #3a4a5c);
+  background: var(--cw-surface-2, #1a2330);
+  color: inherit;
+  cursor: pointer;
+}
+
+.settings-maintenance-last,
+.settings-maintenance-result {
+  font-size: 0.9rem;
+  margin: 0.35rem 0;
+  color: var(--cw-muted, #9aa8b8);
+}
+
+.settings-maintenance-samples {
+  font-size: 0.85rem;
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.1rem;
+  color: var(--cw-muted, #9aa8b8);
+  max-height: 8rem;
+  overflow: auto;
+}
+
+.settings-maintenance-samples li {
+  margin: 0.15rem 0;
+}
+
+.settings-maintenance-followup {
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 6px;
+  background: var(--cw-surface-2, #1a2330);
+  border: 1px solid var(--cw-border, #3a4a5c);
+}
+
+.settings-maintenance-muted {
+  font-size: 0.85rem;
+  color: var(--cw-muted, #9aa8b8);
+  margin: 0.75rem 0 0;
+}
+
 .settings-theme-copy em {
   font-style: normal;
   font-size: 10px;

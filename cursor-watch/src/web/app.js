@@ -812,12 +812,89 @@ function syncSettingsThemeRadios(theme) {
   }
 }
 
+/** Last library header refresh summary from prefs (optional). */
+let libraryHeaderRefreshLast = null;
+
+function formatLibraryRefreshSummary(result) {
+  const parts = [];
+  if (result.stateDbFound === false) {
+    parts.push(`未找到 Cursor state.vscdb（馆藏 ${result.targetCount ?? 0} 条无法预览）`);
+    return parts.join(" · ");
+  }
+  parts.push(`将刷新 ${result.refreshed} 条`);
+  parts.push(`无 header 跳过 ${result.skippedNoHeader}`);
+  if (result.failed) parts.push(`失败 ${result.failed}`);
+  return parts.join(" · ");
+}
+
+function renderLibraryRefreshSamples(result) {
+  const list = document.getElementById("settingsLibraryRefreshSamples");
+  if (!list) return;
+  const samples = Array.isArray(result.samples) ? result.samples : [];
+  if (!samples.length) {
+    list.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  list.hidden = false;
+  list.innerHTML = samples
+    .map((s) => {
+      const title = (s.title || s.conversationId || "").trim();
+      const mark = s.mark === "archive" ? "Archive" : "Todo";
+      return `<li><span class="settings-maintenance-sample-mark">${escapeHtml(mark)}</span> ${escapeHtml(title)}</li>`;
+    })
+    .join("");
+}
+
+function renderLibraryRefreshLastLine() {
+  const el = document.getElementById("settingsLibraryRefreshLast");
+  if (!el) return;
+  const last = libraryHeaderRefreshLast;
+  if (!last || typeof last.at !== "number") {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const when = new Date(last.at).toLocaleString();
+  el.hidden = false;
+  el.textContent = `上次刷新：${when} · 成功 ${last.refreshed} · 跳过 ${last.skippedNoHeader}${
+    last.failed ? ` · 失败 ${last.failed}` : ""
+  }`;
+}
+
+function showLibraryRefreshResult(result, { isPreview }) {
+  const el = document.getElementById("settingsLibraryRefreshResult");
+  const follow = document.getElementById("settingsLibraryRefreshFollowup");
+  if (!el) return;
+  el.hidden = false;
+  el.textContent = `${isPreview ? "预览" : "完成"}：${formatLibraryRefreshSummary(result)}`;
+  renderLibraryRefreshSamples(result);
+  if (follow) follow.hidden = isPreview;
+}
+
+async function postLibraryHeaderRefresh(dryRun) {
+  const res = await fetch("/api/maintenance/library-header-refresh", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ dryRun }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data.error || `请求失败 (${res.status})`;
+    showToast(msg);
+    return null;
+  }
+  return data;
+}
+
 function bindPanelSettings() {
   const btn = document.getElementById("settingsBtn");
   const dialog = document.getElementById("panelSettingsDialog");
   const form = document.getElementById("panelSettingsForm");
   const cancel = document.getElementById("settingsCancel");
   const themeGrid = document.getElementById("settingsThemeGrid");
+  const previewBtn = document.getElementById("settingsLibraryRefreshPreview");
+  const applyBtn = document.getElementById("settingsLibraryRefreshApply");
   if (!btn || !dialog || !form) return;
 
   const syncExpanded = () => {
@@ -845,6 +922,44 @@ function bindPanelSettings() {
   form.addEventListener("submit", (ev) => {
     ev.preventDefault();
     void savePanelSettings();
+  });
+  previewBtn?.addEventListener("click", () => {
+    void (async () => {
+      previewBtn.disabled = true;
+      try {
+        const data = await postLibraryHeaderRefresh(true);
+        if (data?.ok) showLibraryRefreshResult(data, { isPreview: true });
+      } finally {
+        previewBtn.disabled = false;
+      }
+    })();
+  });
+  applyBtn?.addEventListener("click", () => {
+    void (async () => {
+      const confirmed = await openLibraryPrompt({
+        mode: "confirm",
+        title: "执行馆藏时间刷新",
+        hint: "将写入 Cursor 的 composerHeaders（仅 lastUpdatedAt）。请确认已完全退出 Cursor，并已自行备份 state.vscdb。",
+        okLabel: "执行刷新",
+      });
+      if (confirmed !== "ok") return;
+      applyBtn.disabled = true;
+      try {
+        const data = await postLibraryHeaderRefresh(false);
+        if (!data?.ok) return;
+        showLibraryRefreshResult(data, { isPreview: false });
+        libraryHeaderRefreshLast = {
+          at: data.batchTs ?? Date.now(),
+          refreshed: data.refreshed,
+          skippedNoHeader: data.skippedNoHeader,
+          failed: data.failed,
+        };
+        renderLibraryRefreshLastLine();
+        showToast("馆藏时间已刷新");
+      } finally {
+        applyBtn.disabled = false;
+      }
+    })();
   });
 }
 
@@ -916,6 +1031,20 @@ function openPanelSettings() {
     if (!focusInput && !nick) focusInput = input;
     listEl.appendChild(row);
   }
+
+  renderLibraryRefreshLastLine();
+  const resultEl = document.getElementById("settingsLibraryRefreshResult");
+  const followEl = document.getElementById("settingsLibraryRefreshFollowup");
+  const samplesEl = document.getElementById("settingsLibraryRefreshSamples");
+  if (resultEl) {
+    resultEl.hidden = true;
+    resultEl.textContent = "";
+  }
+  if (samplesEl) {
+    samplesEl.hidden = true;
+    samplesEl.innerHTML = "";
+  }
+  if (followEl) followEl.hidden = true;
 
   if (typeof dialog.showModal === "function") dialog.showModal();
   else dialog.setAttribute("open", "");
@@ -1226,10 +1355,19 @@ async function fetchDaemonPrefs() {
         ? data.workspaceAliases
         : {};
     uiTheme = normalizeUiTheme(data.uiTheme);
+    const last = data.libraryHeaderRefreshLast;
+    libraryHeaderRefreshLast =
+      last &&
+      typeof last === "object" &&
+      typeof last.at === "number" &&
+      typeof last.refreshed === "number"
+        ? last
+        : null;
   } catch {
     notificationSound = false;
     workspaceAliases = {};
     uiTheme = "blueprint";
+    libraryHeaderRefreshLast = null;
   }
   applyUiTheme(uiTheme);
   syncSoundToggle();
