@@ -102,5 +102,5 @@ Ship an **Informal app** named **Cursors Watch** installed at `/Applications/Cur
 
 - Domain language: Menubar shell, Informal app, Shell v1, Open at login, Reminder delivery, HUD, Inbox-first panel — see `CONTEXT.md`.
 - Seams approved with the user before writing this spec: (1) Reminder delivery exit; (2) Menubar shell lifecycle acceptance.
-- Mirror path for durable review: `docs/superpowers/specs/2026-07-29-cursor-watch-menubar-shell-design.md`.
+- Legacy superpowers design archive: `.scratch/menubar-shell/issues/99-migrated-superpowers-design.md`.
 - Next optional step: `/to-tickets` to slice Shell v1 into tracer-bullet tickets.
